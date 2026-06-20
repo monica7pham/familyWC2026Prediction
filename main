@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Dự Đoán World Cup 2026</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        .stadium-bg { background: linear-gradient(135deg, #050b07 0%, #0a140e 40%, #0f172a 100%); }
+        input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    </style>
+</head>
+<body class="stadium-bg text-gray-100 font-sans min-h-screen">
+    <div id="screen-login" class="flex flex-col items-center justify-center min-h-screen px-4">
+        <div class="w-full max-w-sm bg-stone-950/90 border border-emerald-950/80 rounded-2xl p-8 shadow-2xl">
+            <div class="text-center mb-8"><h1 class="text-xl font-black uppercase tracking-widest text-emerald-500">CỔNG ĐĂNG NHẬP</h1></div>
+            <div class="space-y-5">
+                <input type="password" id="login-password" placeholder="Mật khẩu truy cập" class="w-full bg-stone-900/60 border border-stone-800 rounded-xl px-4 py-3.5 text-center text-lg text-white font-mono tracking-widest focus:outline-none">
+                <button onclick="executeLoginGate()" class="w-full bg-emerald-600 text-stone-950 font-black py-3.5 rounded-xl uppercase tracking-wider">Truy Cập Hệ Thống</button>
+                <p id="login-error-msg" class="text-red-400 text-xs font-bold text-center hidden">Mật khẩu chưa chính xác.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="screen-name-prompt" class="flex flex-col items-center justify-center min-h-screen px-4 hidden">
+        <div class="w-full max-w-sm bg-stone-950/90 border border-emerald-950/80 rounded-2xl p-8 shadow-2xl">
+            <div class="text-center mb-6"><h2 class="text-lg font-black uppercase text-white">Đăng Ký Thành Viên</h2></div>
+            <div class="space-y-4">
+                <input type="text" id="player-identity-input" placeholder="Ví dụ: Anh Tuấn..." class="w-full bg-stone-900/60 border border-stone-800 rounded-xl px-4 py-3.5 text-center text-base font-bold text-white focus:outline-none">
+                <button onclick="executePlayerOnboarding()" class="w-full bg-emerald-600 text-stone-950 font-black py-3.5 rounded-xl uppercase">Xác Nhận Tham Gia</button>
+                <p id="name-error-msg" class="text-red-400 text-xs font-bold text-center hidden">Vui lòng điền tên.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="screen-play-dashboard" class="hidden max-w-4xl mx-auto px-4 py-6 space-y-6">
+        <header class="bg-stone-950/80 border border-stone-900 rounded-2xl p-4 flex justify-between items-center">
+            <div><h2 class="text-lg font-black text-white uppercase">BẢNG DỰ ĐOÁN WORLD CUP</h2><p id="player-welcome-badge" class="text-xs text-stone-400"></p></div>
+            <div class="flex items-center gap-3"><span id="player-round-indicator" class="text-xs font-bold bg-emerald-950 text-emerald-400 px-3 py-1.5 rounded-xl"></span><button onclick="executeLogoutTeardown()" class="bg-stone-900 text-stone-400 px-4 py-2 rounded-xl text-xs uppercase font-bold">Đăng Xuất</button></div>
+        </header>
+
+        <nav class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-stone-950/40 p-1.5 rounded-xl border border-stone-900">
+            <button onclick="executeSwitchTab('predictions')" id="tab-btn-predictions" class="py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all bg-emerald-600 text-stone-950">⚽ Dự Đoán</button>
+            <button onclick="executeSwitchTab('trivia')" id="tab-btn-trivia" class="py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all text-stone-400 hover:text-white">💡 Trivia</button>
+            <button onclick="executeSwitchTab('leaderboard')" id="tab-btn-leaderboard" class="py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all text-stone-400 hover:text-white">🏆 Bảng Điểm</button>
+            <button onclick="executeSwitchTab('profile')" id="tab-btn-profile" class="py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all text-stone-400 hover:text-white">👤 Hồ Sơ</button>
+        </nav>
+
+        <div id="player-prize-card" class="bg-amber-500/10 border border-yellow-600/20 rounded-2xl p-4 text-center">
+            <p class="text-xs font-black text-yellow-500">GIẢI THƯỞNG LỚN: 500.000 VNĐ</p>
+        </div>
+        
+        <div id="player-championship-podium" class="hidden bg-yellow-500/10 border-2 border-yellow-500 rounded-3xl p-8 text-center shadow-2xl">
+            <h2 class="text-2xl font-black text-yellow-400 uppercase">GIẢI ĐẤU CHÍNH THỨC KHÉP LẠI</h2>
+            <div class="mt-4 inline-block bg-stone-950 px-8 py-4 rounded-2xl"><p id="podium-winner-name" class="text-2xl font-black text-yellow-400"></p><p id="podium-winner-score" class="text-xs text-stone-400 mt-1"></p></div>
+        </div>
+
+        <div id="tab-view-predictions" class="space-y-4">
+            <div id="player-fixtures-container" class="space-y-4"></div>
+        </div>
+
+        <div id="tab-view-trivia" class="space-y-4 hidden">
+            <div class="bg-stone-950/60 border border-stone-900 rounded-2xl p-6 space-y-4">
+                <div class="flex justify-between items-center border-b border-stone-900 pb-3">
+                    <h3 class="text-sm font-black text-white uppercase tracking-wide">CÂU HỎI HÀNG NGÀY</h3>
+                    <span class="text-10px bg-blue-950 text-blue-400 px-2.5 py-1 rounded-md font-bold uppercase">Trả lời đúng: +1 Điểm</span>
+                </div>
+                <p id="player-quiz-question-display" class="text-base font-bold text-stone-200 italic py-2"></p>
+                <input type="text" id="player-quiz-answer-field" oninput="executeSaveQuizResponse()" placeholder="Gõ câu trả lời của bạn vào đây..." class="w-full bg-stone-950 border border-stone-800 text-white px-4 py-3.5 rounded-xl focus:outline-none focus:border-emerald-600 text-sm font-medium">
+            </div>
+        </div>
+
+        <div id="tab-view-leaderboard" class="space-y-4 hidden">
+            <div id="player-side-leaderboard-container"></div>
+        </div>
+
+        <div id="tab-view-profile" class="space-y-4 hidden">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-stone-950/60 border border-stone-900 p-5 rounded-2xl text-center space-y-1">
+                    <p class="text-10px font-bold text-stone-500 uppercase tracking-widest">Hạng Của Bạn</p>
+                    <p id="profile-stat-rank" class="text-3xl font-black text-emerald-500">--</p>
+                </div>
+                <div class="bg-stone-950/60 border border-stone-900 p-5 rounded-2xl text-center space-y-1">
+                    <p class="text-10px font-bold text-stone-500 uppercase tracking-widest">Tổng Điểm Hệ Thống</p>
+                    <p id="profile-stat-score" class="text-3xl font-black text-white">0đ</p>
+                </div>
+                <div class="bg-stone-950/60 border border-stone-900 p-5 rounded-2xl text-center space-y-1">
+                    <p class="text-10px font-bold text-stone-500 uppercase tracking-widest">Điểm Thưởng Trivia</p>
+                    <p id="profile-stat-bonus" class="text-3xl font-black text-blue-400">0đ</p>
+                </div>
+            </div>
+            <div class="bg-stone-950/60 border border-stone-900 p-6 rounded-2xl space-y-4">
+                <h3 class="text-sm font-black text-white uppercase tracking-wider">Danh Hiệu Thành Tích</h3>
+                <div id="profile-badges-container" class="flex flex-wrap gap-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="screen-admin-dashboard" class="hidden max-w-7xl mx-auto px-4 py-6 space-y-6">
+        <header class="bg-stone-950/80 border border-stone-900 rounded-2xl p-4 flex justify-between items-center">
+            <div><h2 class="text-lg font-black text-white uppercase">BẢNG QUẢN TRỊ VIÊN</h2></div>
+            <div class="flex gap-2">
+                <button onclick="executeClearAllMatches()" class="bg-red-950 text-red-400 border border-red-900 px-4 py-2 rounded-xl text-xs uppercase font-bold">Xóa Toàn Bộ Trận Đấu</button>
+                <button onclick="executeLogoutTeardown()" class="bg-stone-900 text-stone-400 px-4 py-2 rounded-xl text-xs uppercase font-bold">Đăng Xuất</button>
+            </div>
+        </header>
+        
+        <div class="bg-stone-950/80 border border-emerald-900/40 p-5 rounded-2xl space-y-4">
+            <h3 class="text-sm font-black text-emerald-400 uppercase tracking-wider">Thêm Trận Đấu Mới</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input type="text" id="new-match-home" placeholder="Đội nhà (Ví dụ: Mỹ)" class="bg-stone-900 border border-stone-800 p-3 rounded-xl text-white font-bold focus:outline-none">
+                <input type="text" id="new-match-away" placeholder="Đội khách (Ví dụ: Pháp)" class="bg-stone-900 border border-stone-800 p-3 rounded-xl text-white font-bold focus:outline-none">
+                <input type="text" id="new-match-group" placeholder="Bảng/Vòng đấu (Ví dụ: Bảng A)" class="bg-stone-900 border border-stone-800 p-3 rounded-xl text-white font-bold focus:outline-none">
+            </div>
+            <button onclick="executeCreateNewMatch()" class="w-full bg-emerald-600 text-stone-950 font-black py-3 rounded-xl uppercase tracking-wider text-sm shadow-lg">+ Thêm Vào Danh Sách</button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="space-y-6">
+                <div class="bg-stone-950/60 border border-stone-900 rounded-2xl p-5 space-y-4">
+                    <label class="text-xs font-bold text-stone-400 uppercase">Vòng đấu hiện tại</label>
+                    <select id="admin-round-dropdown" onchange="executeAdminRoundUpdate()" class="w-full bg-stone-900 text-white rounded-xl px-3 py-2.5 font-bold focus:outline-none">
+                        <option value="Vòng Bảng">Vòng Bảng</option><option value="Vòng 32 Đội">Vòng 32 Đội</option><option value="Vòng 16 Đội">Vòng 16 Đội</option><option value="Tứ Kết">Tứ Kết</option><option value="Bán Kết">Bán Kết</option><option value="Chung Kết">Chung Kết</option>
+                    </select>
+                    <button id="btn-end-tournament" onclick="executeToggleTournamentStatus(true)" class="w-full bg-red-950 text-red-400 font-black py-2.5 rounded-xl text-xs uppercase border border-red-900">Kết Thúc Giải Đấu</button>
+                    <button id="btn-reopen-tournament" onclick="executeToggleTournamentStatus(false)" class="w-full bg-stone-900 text-stone-400 font-bold py-2.5 rounded-xl text-xs uppercase border border-stone-800 hidden">Mở Lại Giải Đấu</button>
+                </div>
+                <div class="bg-stone-950/60 border border-stone-900 rounded-2xl p-5 space-y-4">
+                    <label class="text-xs font-bold text-stone-400 uppercase">Câu hỏi Trivia hôm nay</label>
+                    <textarea id="admin-quiz-input" rows="3" oninput="executeAdminQuizBroadcast()" placeholder="Nhập câu hỏi..." class="w-full bg-stone-900 text-white p-3 rounded-xl focus:outline-none"></textarea>
+                </div>
+                <div id="admin-side-leaderboard-container"></div>
+            </div>
+            <div class="lg:col-span-2 space-y-6">
+                <div class="bg-stone-950/60 border border-stone-900 p-5 rounded-2xl space-y-4">
+                    <h3 class="text-sm font-black text-white uppercase">Danh Sách Trận Đấu & Nhập Kết Quả</h3>
+                    <div id="admin-fixtures-container" class="space-y-4"></div>
+                </div>
+                <div class="bg-stone-950/60 border border-stone-900 rounded-2xl p-5 space-y-4">
+                    <label class="text-xs font-bold text-emerald-400 uppercase">Kiểm tra Thành Viên & Cộng điểm Trivia</label>
+                    <div class="flex flex-wrap gap-2" id="admin-inspector-tabs"></div>
+                    <div id="admin-inspector-viewport" class="bg-stone-900/30 p-4 rounded-xl min-h-32 text-xs text-stone-500 italic">Chọn thành viên để chấm điểm Trivia hoặc xem dự đoán.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentSystemRole = "", currentActiveUser = "", selectedInspectorUser = "", activeTab = "predictions";
+        let matchDatabase = JSON.parse(localStorage.getItem('wc26_matches')) || [];
+        let profileDatabase = JSON.parse(localStorage.getItem('wc26_profiles')) || [];
+        let systemSettings = JSON.parse(localStorage.getItem('wc26_settings')) || { currentRound: "Vòng Bảng", quizQuestion: "Chưa có câu hỏi.", isTournamentOver: false };
+        
+        function executeLoginGate() {
+            const secretInput = document.getElementById('login-password').value.trim();
+            if (secretInput === "Monica") { currentSystemRole = "admin"; currentActiveUser = "Ban Quản Trị"; unmountAllViews(); document.getElementById('screen-admin-dashboard').classList.remove('hidden'); syncAdminControlPanelValues(); executeRenderSequence(); }
+            else if (secretInput === "kumonkumi") { currentSystemRole = "player"; unmountAllViews(); document.getElementById('screen-name-prompt').classList.remove('hidden'); }
+            else { document.getElementById('login-error-msg').classList.remove('hidden'); }
+        }
+        function executePlayerOnboarding() {
+            const rawName = document.getElementById('player-identity-input').value.trim();
+            if (!rawName) return;
+            currentActiveUser = rawName;
+            let userMatch = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            if (!userMatch) { profileDatabase.push({ name: currentActiveUser, predictions: {}, quizAnswer: "", bonusPoints: 0, score: 0 }); commitStateToLocalStorage(); }
+            unmountAllViews(); document.getElementById('screen-play-dashboard').classList.remove('hidden');
+            const activeRecord = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            document.getElementById('player-quiz-answer-field').value = activeRecord.quizAnswer || "";
+            executeSwitchTab('predictions');
+            executeRenderSequence();
+        }
+        function executeSwitchTab(targetTab) {
+            activeTab = targetTab;
+            ['predictions', 'trivia', 'leaderboard', 'profile'].forEach(tab => {
+                document.getElementById(`tab-view-${tab}`).classList.add('hidden');
+                document.getElementById(`tab-btn-${tab}`).className = "py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all text-stone-400 hover:text-white";
+            });
+            document.getElementById(`tab-view-${targetTab}`).classList.remove('hidden');
+            document.getElementById(`tab-btn-${targetTab}`).className = "py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all bg-emerald-600 text-stone-950";
+            if(targetTab === 'profile') executeRenderProfileStats();
+        }
+        function executeCreateNewMatch() {
+            const home = document.getElementById('new-match-home').value.trim();
+            const away = document.getElementById('new-match-away').value.trim();
+            const group = document.getElementById('new-match-group').value.trim() || "Trận đấu";
+            if(!home || !away) { alert("Vui lòng nhập đầy đủ tên đội nhà và đội khách!"); return; }
+            const newId = matchDatabase.length > 0 ? Math.max(...matchDatabase.map(m => m.id)) + 1 : 1;
+            matchDatabase.push({ id: newId, home: home, away: away, officialHome: null, officialAway: null, group: group });
+            document.getElementById('new-match-home').value = "";
+            document.getElementById('new-match-away').value = "";
+            document.getElementById('new-match-group').value = "";
+            commitStateToLocalStorage();
+            executeRenderSequence();
+        }
+        function executeDeleteSingleMatch(mId) {
+            matchDatabase = matchDatabase.filter(m => m.id !== mId);
+            commitStateToLocalStorage();
+            executeRenderSequence();
+        }
+        function executeClearAllMatches() {
+            if(confirm("Bạn có chắc chắn muốn xóa TOÀN BỘ trận đấu hiện tại không?")) {
+                matchDatabase = [];
+                commitStateToLocalStorage();
+                executeRenderSequence();
+            }
+        }
+        function executeLogoutTeardown() { currentSystemRole = ""; currentActiveUser = ""; unmountAllViews(); document.getElementById('screen-login').classList.remove('hidden'); }
+        function unmountAllViews() { ['screen-login', 'screen-name-prompt', 'screen-play-dashboard', 'screen-admin-dashboard'].forEach(id => document.getElementById(id).classList.add('hidden')); }
+        function syncAdminControlPanelValues() {
+            document.getElementById('admin-round-dropdown').value = systemSettings.currentRound;
+            document.getElementById('admin-quiz-input').value = systemSettings.quizQuestion;
+            if (systemSettings.isTournamentOver) { document.getElementById('btn-end-tournament').classList.add('hidden'); document.getElementById('btn-reopen-tournament').classList.remove('hidden'); }
+            else { document.getElementById('btn-end-tournament').classList.remove('hidden'); document.getElementById('btn-reopen-tournament').classList.add('hidden'); }
+        }
+        function executeAdminRoundUpdate() { systemSettings.currentRound = document.getElementById('admin-round-dropdown').value; commitStateToLocalStorage(); executeRenderSequence(); }
+        function executeAdminQuizBroadcast() { systemSettings.quizQuestion = document.getElementById('admin-quiz-input').value.trim(); commitStateToLocalStorage(); }
+        function executeToggleTournamentStatus(v) { systemSettings.isTournamentOver = v; commitStateToLocalStorage(); syncAdminControlPanelValues(); executeRenderSequence(); }
+        function executeAdjustTriviaBonus(playerName, amount) {
+            let user = profileDatabase.find(p => p.name.toLowerCase() === playerName.toLowerCase());
+            if (user) {
+                user.bonusPoints = (user.bonusPoints || 0) + amount;
+                if (user.bonusPoints < 0) user.bonusPoints = 0;
+                executeDynamicScoringEngine();
+                executeRenderSequence();
+                if (selectedInspectorUser) executeAdminViewUserInspect(selectedInspectorUser);
+            }
+        }
+        function executeDynamicScoringEngine() {
+            profileDatabase.forEach(player => {
+                let pts = player.bonusPoints || 0;
+                matchDatabase.forEach(match => {
+                    if (match.officialHome !== null && match.officialAway !== null && player.predictions[`match-${match.id}`]) {
+                        const pred = player.predictions[`match-${match.id}`];
+                        if (pred.home !== "" && pred.away !== "") {
+                            const pH = parseInt(pred.home), pA = parseInt(pred.away), oH = parseInt(match.officialHome), oA = parseInt(match.officialAway);
+                            const pO = pH > pA ? 'W' : pH < pA ? 'L' : 'D', oO = oH > oA ? 'W' : oH < oA ? 'L' : 'D';
+                            if (pH === oH && pA === oA) pts += 3; else if (pO === oO) pts += 1;
+                        }
+                    }
+                });
+                player.score = pts;
+            });
+            commitStateToLocalStorage();
+        }
+        function executeSavePredictionInput(mId) {
+            if (systemSettings.isTournamentOver) return;
+            let activeRecord = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            if (activeRecord) { activeRecord.predictions[`match-${mId}`] = { home: document.getElementById(`pred-${mId}-home`).value, away: document.getElementById(`pred-${mId}-away`).value }; executeDynamicScoringEngine(); renderLeaderboardContainers(); }
+        }
+        function executeSaveQuizResponse() {
+            if (systemSettings.isTournamentOver) return;
+            let activeRecord = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            if (activeRecord) { activeRecord.quizAnswer = document.getElementById('player-quiz-answer-field').value; commitStateToLocalStorage(); }
+        }
+        function executeSaveOfficialScoreInput(mId) {
+            let targetMatch = matchDatabase.find(m => m.id === mId);
+            if (targetMatch) {
+                const h = document.getElementById(`official-${mId}-home`).value, a = document.getElementById(`official-${mId}-away`).value;
+                targetMatch.officialHome = h !== "" ? parseInt(h) : null; targetMatch.officialAway = a !== "" ? parseInt(a) : null;
+                executeDynamicScoringEngine(); renderLeaderboardContainers(); if (selectedInspectorUser) executeAdminViewUserInspect(selectedInspectorUser);
+            }
+        }
+        function executeRemoveUserAccount(name) {
+            if (confirm(`Xóa thành viên ${name}?`)) { profileDatabase = profileDatabase.filter(p => p.name.toLowerCase() !== name.toLowerCase()); commitStateToLocalStorage(); executeRenderSequence(); }
+        }
+        function executeRenderSequence() {
+            if (currentSystemRole === "player") {
+                document.getElementById('player-welcome-badge').innerText = `Tài khoản: ${currentActiveUser}`;
+                document.getElementById('player-round-indicator').innerText = `Vòng đấu: ${systemSettings.currentRound}`;
+                document.getElementById('player-quiz-question-display').innerText = systemSettings.quizQuestion;
+                if (systemSettings.isTournamentOver) { document.getElementById('player-prize-card').classList.add('hidden'); document.getElementById('player-championship-podium').classList.remove('hidden'); let top = [...profileDatabase].sort((a,b)=>b.score-a.score)[0]; document.getElementById('podium-winner-name').innerText = top?top.name:"Chưa rõ"; document.getElementById('podium-winner-score').innerText = top?`Điểm: ${top.score}`:""; }
+                else { document.getElementById('player-championship-podium').classList.add('hidden'); document.getElementById('player-prize-card').classList.remove('hidden'); }
+                renderPlayerFixturesList();
+                if(activeTab === 'profile') executeRenderProfileStats();
+            } else if (currentSystemRole === "admin") { renderAdminFixturesList(); renderAdminInspectorControls(); }
+            renderLeaderboardContainers();
+        }
+        function renderPlayerFixturesList() {
+            if (matchDatabase.length === 0) { document.getElementById('player-fixtures-container').innerHTML = `<p class="text-sm text-stone-500 italic text-center py-8">Chưa có trận đấu nào được tạo bởi Ban Quản Trị.</p>`; return; }
+            let prRecord = profileDatabase.find(pl => pl.name.toLowerCase() === currentActiveUser.toLowerCase());
+            document.getElementById('player-fixtures-container').innerHTML = matchDatabase.map(m => {
+                let h = prRecord&&prRecord.predictions[`match-${m.id}`]?prRecord.predictions[`match-${m.id}`].home:"", a = prRecord&&prRecord.predictions[`match-${m.id}`]?prRecord.predictions[`match-${m.id}`].away:"";
+                let badge = m.officialHome!==null? `<span class="text-xs text-emerald-400 font-bold">KQ: ${m.officialHome}-${m.officialAway}</span>`:`<span class="text-xs text-stone-500">Chờ đấu</span>`;
+                return `<div class="bg-stone-900/50 p-4 rounded-xl border border-stone-800 flex justify-between items-center"><div><p class="text-xs text-emerald-500 font-bold">${m.group}</p><p class="text-sm font-bold text-white">${m.home} vs ${m.away}</p></div><div class="flex items-center gap-1"><input type="number" value="${h}" id="pred-${m.id}-home" oninput="executeSavePredictionInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"><span>-</span><input type="number" value="${a}" id="pred-${m.id}-away" oninput="executeSavePredictionInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"></div><div>${badge}</div></div>`;
+            }).join('');
+        }
+        function renderAdminFixturesList() {
+            if (matchDatabase.length === 0) { document.getElementById('admin-fixtures-container').innerHTML = `<p class="text-xs text-stone-500 italic text-center py-4">Danh sách trống. Hãy thêm trận đấu ở form phía trên!</p>`; return; }
+            document.getElementById('admin-fixtures-container').innerHTML = matchDatabase.map(m => {
+                let h = m.officialHome!==null?m.officialHome:"", a = m.officialAway!==null?m.officialAway:"";
+                return `<div class="bg-stone-900/40 p-3 rounded-xl border border-stone-800 flex justify-between items-center"><div><p class="text-xs text-stone-500">${m.group}</p><p class="text-sm font-bold text-white">${m.home} - ${m.away}</p></div><div class="flex items-center gap-2"><div class="flex items-center gap-1"><input type="number" value="${h}" id="official-${m.id}-home" oninput="executeSaveOfficialScoreInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"><span>:</span><input type="number" value="${a}" id="official-${m.id}-away" oninput="executeSaveOfficialScoreInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"></div><button onclick="executeDeleteSingleMatch(${m.id})" class="text-xs text-red-500 bg-stone-950 px-2 py-1 rounded border border-stone-800 ml-4 hover:bg-red-950">Xóa</button></div></div>`;
+            }).join('');
+        }
+        function renderLeaderboardContainers() {
+            let sorted = [...profileDatabase].sort((a,b)=>b.score-a.score);
+            let rows = sorted.map((p,i)=>`<tr class="border-b border-stone-900/60 text-xs"><td class="p-3 text-center font-bold text-stone-400">${i+1}</td><td class="p-3 text-white flex justify-between font-bold"><span>${p.name} ${i===0?'👑':''}</span>${currentSystemRole==='admin'?`<button onclick="executeRemoveUserAccount('${p.name}')" class="text-10px text-red-400 bg-stone-900 px-2 py-0.5 rounded border border-stone-800">Xóa</button>`:''}</td><td class="p-3 text-right text-emerald-500 font-black text-sm">${p.score}đ <span class="text-10px text-stone-500 font-normal block sm:inline sm:ml-1">(Bonus: ${p.bonusPoints||0}đ)</span></td></tr>`).join('');
+            let t = `<div class="bg-stone-950/60 border border-stone-900 rounded-2xl p-5"><h3 class="text-xs font-black uppercase text-white mb-3 tracking-wider">BXH Gia Đình</h3><table class="w-full text-left"><thead><tr class="text-10px text-stone-500 uppercase border-b border-stone-900"><th class="p-2 w-12 text-center">#</th><th class="p-2">Thành Viên</th><th class="p-2 text-right">Điểm Số</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="text-center text-stone-600 italic p-6">Chưa có ai tham gia bảng xếp hạng</td></tr>'}</tbody></table></div>`;
+            if(currentSystemRole==="player") document.getElementById('player-side-leaderboard-container').innerHTML=t;
+            else if(currentSystemRole==="admin") document.getElementById('admin-side-leaderboard-container').innerHTML=t;
+        }
+        function executeRenderProfileStats() {
+            let sorted = [...profileDatabase].sort((a,b)=>b.score-a.score);
+            let idx = sorted.findIndex(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            let user = sorted[idx];
+            if(!user) return;
+            
+            document.getElementById('profile-stat-rank').innerText = idx !== -1 ? `#${idx + 1}` : '--';
+            document.getElementById('profile-stat-score').innerText = `${user.score || 0}đ`;
+            document.getElementById('profile-stat-bonus').innerText = `${user.bonusPoints || 0}đ`;
+            
+            let badges = [];
+            if(idx === 0 && user.score > 0) badges.push(`<span class="px-3 py-1.5 bg-yellow-500/10 border border-yellow-500 text-yellow-500 rounded-xl text-xs font-black uppercase">👑 Nhà Vua (Hạng 1)</span>`);
+            if((user.bonusPoints || 0) >= 3) badges.push(`<span class="px-3 py-1.5 bg-blue-500/10 border border-blue-500 text-blue-400 rounded-xl text-xs font-black uppercase">🧠 Thiên Tài Thể Thao</span>`);
+            if(Object.keys(user.predictions || {}).length >= 5) badges.push(`<span class="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500 text-emerald-400 rounded-xl text-xs font-black uppercase">🎯 Siêu Bản Điểm</span>`);
+            if(badges.length === 0) badges.push(`<span class="text-xs text-stone-500 italic">Hãy tham gia dự đoán và trả lời câu hỏi để mở khóa danh hiệu!</span>`);
+            document.getElementById('profile-badges-container').innerHTML = badges.join('');
+        }
+        function renderAdminInspectorControls() {
+            document.getElementById('admin-inspector-tabs').innerHTML = profileDatabase.map(p => `<button onclick="executeAdminViewUserInspect('${p.name}')" class="px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-800 text-xs font-bold text-white">${p.name}</button>`).join('');
+        }
+        function executeAdminViewUserInspect(name) {
+            selectedInspectorUser = name; let user = profileDatabase.find(p=>p.name.toLowerCase()===name.toLowerCase());
+            if(!user) return;
+            let pr = matchDatabase.map(m=>{ let prd = user.predictions[`match-${m.id}`]?`${user.predictions[`match-${m.id}`].home}-${user.predictions[`match-${m.id}`].away}`:"Chưa chọn"; return `<div class="p-2 bg-stone-950 rounded border border-stone-900 text-11px text-stone-300 flex justify-between"><span>${m.home}-${m.away}</span><span class="text-blue-400 font-bold">Đoán: ${prd}</span></div>`; }).join('');
+            
+            document.getElementById('admin-inspector-viewport').innerHTML = `
+                <div class="space-y-4 w-full text-left">
+                    <div class="bg-stone-950 p-3 rounded-xl border border-stone-800 flex justify-between items-center">
+                        <div>
+                            <p class="text-10px text-stone-500 uppercase font-bold">Câu trả lời Trivia:</p>
+                            <p class="text-sm font-bold text-amber-400 mt-0.5">"${user.quizAnswer || 'Chưa trả lời'}"</p>
+                            <p class="text-10px text-stone-400 mt-1">Điểm Trivia hiện tại: <span class="text-emerald-400 font-bold">${user.bonusPoints || 0}đ</span></p>
+                        </div>
+                        <div class="flex gap-1">
+                            <button onclick="executeAdjustTriviaBonus('${user.name}', 1)" class="bg-emerald-600 text-stone-950 font-black px-3 py-2 rounded-xl uppercase tracking-wider text-10px hover:bg-emerald-500">+1 Pt Bonus</button>
+                            <button onclick="executeAdjustTriviaBonus('${user.name}', -1)" class="bg-stone-900 text-red-400 border border-stone-800 font-black px-2.5 py-2 rounded-xl text-10px hover:bg-stone-800">-1 Pt</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${pr}</div>
+                </div>`;
+        }
+        function commitStateToLocalStorage() { localStorage.setItem('wc26_matches', JSON.stringify(matchDatabase)); localStorage.setItem('wc26_profiles', JSON.stringify(profileDatabase)); localStorage.setItem('wc26_settings', JSON.stringify(systemSettings)); }
+    </script>
+</body>
+</html>
