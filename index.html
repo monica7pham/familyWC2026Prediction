@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hệ Thống Dự Đoán World Cup 2026</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         .stadium-bg { background: linear-gradient(135deg, #050b07 0%, #0a140e 40%, #0f172a 100%); }
         input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        .loading { opacity: 0.5; pointer-events: none; }
     </style>
 </head>
 <body class="stadium-bg text-gray-100 font-sans min-h-screen">
@@ -146,24 +148,150 @@
     </div>
 
     <script>
+        // ========== SUPABASE INITIALIZATION ==========
+        const supabaseUrl = 'https://samygkvqashyfxptuozw.supabase.co';
+        const supabaseKey = 'sb_publishable_9ph4JbnO-vSXzRkOnLQZTQ_r0bT82RT';
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        // ========== GLOBAL VARIABLES ==========
         let currentSystemRole = "", currentActiveUser = "", selectedInspectorUser = "", activeTab = "predictions";
         let matchDatabase = JSON.parse(localStorage.getItem('wc26_matches')) || [];
         let profileDatabase = JSON.parse(localStorage.getItem('wc26_profiles')) || [];
         let systemSettings = JSON.parse(localStorage.getItem('wc26_settings')) || { currentRound: "Vòng Bảng", quizQuestion: "Chưa có câu hỏi.", isTournamentOver: false };
+        let currentUserId = null;
+
+        // ========== DATA LOADING FUNCTIONS ==========
+        async function loadAllDataFromSupabase() {
+            try {
+                const [matches, users, settings] = await Promise.all([
+                    supabase.from('matches').select('*'),
+                    supabase.from('users').select('*'),
+                    supabase.from('settings').select('*').limit(1)
+                ]);
+
+                if (matches.error) throw matches.error;
+                if (users.error) throw users.error;
+
+                // Convert Supabase data to format matching our app
+                matchDatabase = (matches.data || []).map(m => ({
+                    id: m.id,
+                    home: m.home_team,
+                    away: m.away_team,
+                    group: m.match_group,
+                    stadium: m.stadium,
+                    officialHome: m.official_home_score,
+                    officialAway: m.official_away_score
+                }));
+
+                // For users, we need to fetch predictions separately
+                profileDatabase = [];
+                for (const user of (users.data || [])) {
+                    const { data: preds } = await supabase
+                        .from('predictions')
+                        .select('*')
+                        .eq('user_id', user.id);
+
+                    let predictions = {};
+                    if (preds) {
+                        preds.forEach(p => {
+                            predictions[`match-${p.match_id}`] = {
+                                home: p.predicted_home_score?.toString() || '',
+                                away: p.predicted_away_score?.toString() || ''
+                            };
+                        });
+                    }
+
+                    profileDatabase.push({
+                        id: user.id,
+                        name: user.username,
+                        predictions: predictions,
+                        quizAnswer: user.quiz_answer || '',
+                        bonusPoints: user.bonus_points || 0,
+                        score: user.total_score || 0
+                    });
+                }
+
+                // Load settings
+                if (settings.data && settings.data.length > 0) {
+                    systemSettings = settings.data[0];
+                }
+
+                console.log('✅ Data loaded from Supabase');
+                return true;
+            } catch (err) {
+                console.error('⚠️ Error loading from Supabase, using localStorage:', err);
+                return false;
+            }
+        }
+
+        // Load data on page start
+        window.addEventListener('load', loadAllDataFromSupabase);
         
         function executeLoginGate() {
             const secretInput = document.getElementById('login-password').value.trim();
-            if (secretInput === "Monica") { currentSystemRole = "admin"; currentActiveUser = "Ban Quản Trị"; unmountAllViews(); document.getElementById('screen-admin-dashboard').classList.remove('hidden'); syncAdminControlPanelValues(); executeRenderSequence(); }
-            else if (secretInput === "kumonkumi") { currentSystemRole = "player"; unmountAllViews(); document.getElementById('screen-name-prompt').classList.remove('hidden'); }
-            else { document.getElementById('login-error-msg').classList.remove('hidden'); }
+            if (secretInput === "Monica") { 
+                currentSystemRole = "admin"; 
+                currentActiveUser = "Ban Quản Trị"; 
+                unmountAllViews(); 
+                document.getElementById('screen-admin-dashboard').classList.remove('hidden'); 
+                syncAdminControlPanelValues(); 
+                executeRenderSequence(); 
+            }
+            else if (secretInput === "kumonkumi") { 
+                currentSystemRole = "player"; 
+                unmountAllViews(); 
+                document.getElementById('screen-name-prompt').classList.remove('hidden'); 
+            }
+            else { 
+                document.getElementById('login-error-msg').classList.remove('hidden'); 
+            }
         }
-        function executePlayerOnboarding() {
+
+        async function executePlayerOnboarding() {
             const rawName = document.getElementById('player-identity-input').value.trim();
             if (!rawName) return;
             currentActiveUser = rawName;
+
+            // Check if user exists in local cache
             let userMatch = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
-            if (!userMatch) { profileDatabase.push({ name: currentActiveUser, predictions: {}, quizAnswer: "", bonusPoints: 0, score: 0 }); commitStateToLocalStorage(); }
-            unmountAllViews(); document.getElementById('screen-play-dashboard').classList.remove('hidden');
+            
+            if (!userMatch) {
+                // Create new user in Supabase
+                const { data, error } = await supabase
+                    .from('users')
+                    .insert({
+                        username: currentActiveUser,
+                        auth_password: 'default',
+                        quiz_answer: '',
+                        bonus_points: 0,
+                        total_score: 0
+                    })
+                    .select();
+
+                if (error) {
+                    console.error('Error creating user:', error);
+                    alert('Lỗi tạo tài khoản: ' + error.message);
+                    return;
+                }
+
+                // Add to local cache
+                if (data && data.length > 0) {
+                    currentUserId = data[0].id;
+                    profileDatabase.push({
+                        id: currentUserId,
+                        name: currentActiveUser,
+                        predictions: {},
+                        quizAnswer: '',
+                        bonusPoints: 0,
+                        score: 0
+                    });
+                }
+            } else {
+                currentUserId = userMatch.id;
+            }
+
+            unmountAllViews(); 
+            document.getElementById('screen-play-dashboard').classList.remove('hidden');
             const activeRecord = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
             document.getElementById('player-quiz-answer-field').value = activeRecord.quizAnswer || "";
             executeSwitchTab('predictions');
@@ -179,30 +307,76 @@
             document.getElementById(`tab-btn-${targetTab}`).className = "py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all bg-emerald-600 text-stone-950";
             if(targetTab === 'profile') executeRenderProfileStats();
         }
-        function executeCreateNewMatch() {
+        async function executeCreateNewMatch() {
             const home = document.getElementById('new-match-home').value.trim();
             const away = document.getElementById('new-match-away').value.trim();
             const group = document.getElementById('new-match-group').value.trim() || "Trận đấu";
             if(!home || !away) { alert("Vui lòng nhập đầy đủ tên đội nhà và đội khách!"); return; }
-            const newId = matchDatabase.length > 0 ? Math.max(...matchDatabase.map(m => m.id)) + 1 : 1;
-            matchDatabase.push({ id: newId, home: home, away: away, officialHome: null, officialAway: null, group: group });
+
+            const { data, error } = await supabase
+                .from('matches')
+                .insert({
+                    home_team: home,
+                    away_team: away,
+                    match_group: group,
+                    official_home_score: null,
+                    official_away_score: null
+                })
+                .select();
+
+            if (error) {
+                console.error('Error creating match:', error);
+                alert('Lỗi: ' + error.message);
+                return;
+            }
+
+            if (data && data.length > 0) {
+                matchDatabase.push({
+                    id: data[0].id,
+                    home: home,
+                    away: away,
+                    group: group,
+                    officialHome: null,
+                    officialAway: null
+                });
+            }
+
             document.getElementById('new-match-home').value = "";
             document.getElementById('new-match-away').value = "";
             document.getElementById('new-match-group').value = "";
-            commitStateToLocalStorage();
             executeRenderSequence();
         }
-        function executeDeleteSingleMatch(mId) {
-            matchDatabase = matchDatabase.filter(m => m.id !== mId);
-            commitStateToLocalStorage();
-            executeRenderSequence();
-        }
-        function executeClearAllMatches() {
-            if(confirm("Bạn có chắc chắn muốn xóa TOÀN BỘ trận đấu hiện tại không?")) {
-                matchDatabase = [];
-                commitStateToLocalStorage();
-                executeRenderSequence();
+
+        async function executeDeleteSingleMatch(mId) {
+            const { error } = await supabase
+                .from('matches')
+                .delete()
+                .eq('id', mId);
+
+            if (error) {
+                console.error('Error deleting match:', error);
+                return;
             }
+
+            matchDatabase = matchDatabase.filter(m => m.id !== mId);
+            executeRenderSequence();
+        }
+
+        async function executeClearAllMatches() {
+            if(!confirm("Bạn có chắc chắn muốn xóa TOÀN BỘ trận đấu hiện tại không?")) return;
+
+            const { error } = await supabase
+                .from('matches')
+                .delete()
+                .neq('id', 0);
+
+            if (error) {
+                console.error('Error clearing matches:', error);
+                return;
+            }
+
+            matchDatabase = [];
+            executeRenderSequence();
         }
         function executeLogoutTeardown() { currentSystemRole = ""; currentActiveUser = ""; unmountAllViews(); document.getElementById('screen-login').classList.remove('hidden'); }
         function unmountAllViews() { ['screen-login', 'screen-name-prompt', 'screen-play-dashboard', 'screen-admin-dashboard'].forEach(id => document.getElementById(id).classList.add('hidden')); }
@@ -215,17 +389,28 @@
         function executeAdminRoundUpdate() { systemSettings.currentRound = document.getElementById('admin-round-dropdown').value; commitStateToLocalStorage(); executeRenderSequence(); }
         function executeAdminQuizBroadcast() { systemSettings.quizQuestion = document.getElementById('admin-quiz-input').value.trim(); commitStateToLocalStorage(); }
         function executeToggleTournamentStatus(v) { systemSettings.isTournamentOver = v; commitStateToLocalStorage(); syncAdminControlPanelValues(); executeRenderSequence(); }
-        function executeAdjustTriviaBonus(playerName, amount) {
+        async function executeAdjustTriviaBonus(playerName, amount) {
             let user = profileDatabase.find(p => p.name.toLowerCase() === playerName.toLowerCase());
-            if (user) {
-                user.bonusPoints = (user.bonusPoints || 0) + amount;
-                if (user.bonusPoints < 0) user.bonusPoints = 0;
-                executeDynamicScoringEngine();
-                executeRenderSequence();
-                if (selectedInspectorUser) executeAdminViewUserInspect(selectedInspectorUser);
+            if (!user) return;
+
+            user.bonusPoints = (user.bonusPoints || 0) + amount;
+            if (user.bonusPoints < 0) user.bonusPoints = 0;
+
+            const { error } = await supabase
+                .from('users')
+                .update({ bonus_points: user.bonusPoints })
+                .eq('id', user.id);
+
+            if (error) {
+                console.error('Error updating bonus:', error);
+                return;
             }
+
+            executeDynamicScoringEngine();
+            executeRenderSequence();
+            if (selectedInspectorUser) executeAdminViewUserInspect(selectedInspectorUser);
         }
-        function executeDynamicScoringEngine() {
+        async function executeDynamicScoringEngine() {
             profileDatabase.forEach(player => {
                 let pts = player.bonusPoints || 0;
                 matchDatabase.forEach(match => {
@@ -239,29 +424,115 @@
                     }
                 });
                 player.score = pts;
+
+                // Save score to Supabase
+                supabase
+                    .from('users')
+                    .update({ total_score: pts })
+                    .eq('id', player.id)
+                    .then()
+                    .catch(err => console.error('Error updating score:', err));
             });
-            commitStateToLocalStorage();
         }
-        function executeSavePredictionInput(mId) {
+        async function executeSavePredictionInput(mId) {
             if (systemSettings.isTournamentOver) return;
+            
             let activeRecord = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
-            if (activeRecord) { activeRecord.predictions[`match-${mId}`] = { home: document.getElementById(`pred-${mId}-home`).value, away: document.getElementById(`pred-${mId}-away`).value }; executeDynamicScoringEngine(); renderLeaderboardContainers(); }
-        }
-        function executeSaveQuizResponse() {
-            if (systemSettings.isTournamentOver) return;
-            let activeRecord = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
-            if (activeRecord) { activeRecord.quizAnswer = document.getElementById('player-quiz-answer-field').value; commitStateToLocalStorage(); }
-        }
-        function executeSaveOfficialScoreInput(mId) {
-            let targetMatch = matchDatabase.find(m => m.id === mId);
-            if (targetMatch) {
-                const h = document.getElementById(`official-${mId}-home`).value, a = document.getElementById(`official-${mId}-away`).value;
-                targetMatch.officialHome = h !== "" ? parseInt(h) : null; targetMatch.officialAway = a !== "" ? parseInt(a) : null;
-                executeDynamicScoringEngine(); renderLeaderboardContainers(); if (selectedInspectorUser) executeAdminViewUserInspect(selectedInspectorUser);
+            if (!activeRecord) return;
+
+            const homeScore = parseInt(document.getElementById(`pred-${mId}-home`).value) || null;
+            const awayScore = parseInt(document.getElementById(`pred-${mId}-away`).value) || null;
+
+            // Upsert prediction to Supabase
+            const { error } = await supabase
+                .from('predictions')
+                .upsert({
+                    user_id: activeRecord.id,
+                    match_id: mId,
+                    predicted_home_score: homeScore,
+                    predicted_away_score: awayScore
+                });
+
+            if (error) {
+                console.error('Error saving prediction:', error);
+                return;
             }
+
+            // Update local cache
+            activeRecord.predictions[`match-${mId}`] = {
+                home: homeScore?.toString() || '',
+                away: awayScore?.toString() || ''
+            };
+
+            executeDynamicScoringEngine();
+            renderLeaderboardContainers();
         }
-        function executeRemoveUserAccount(name) {
-            if (confirm(`Xóa thành viên ${name}?`)) { profileDatabase = profileDatabase.filter(p => p.name.toLowerCase() !== name.toLowerCase()); commitStateToLocalStorage(); executeRenderSequence(); }
+
+        async function executeSaveQuizResponse() {
+            if (systemSettings.isTournamentOver) return;
+            
+            let activeRecord = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            if (!activeRecord) return;
+
+            const answer = document.getElementById('player-quiz-answer-field').value;
+
+            const { error } = await supabase
+                .from('users')
+                .update({ quiz_answer: answer })
+                .eq('id', activeRecord.id);
+
+            if (error) {
+                console.error('Error saving quiz response:', error);
+                return;
+            }
+
+            activeRecord.quizAnswer = answer;
+        }
+
+        async function executeSaveOfficialScoreInput(mId) {
+            let targetMatch = matchDatabase.find(m => m.id === mId);
+            if (!targetMatch) return;
+
+            const h = parseInt(document.getElementById(`official-${mId}-home`).value) || null;
+            const a = parseInt(document.getElementById(`official-${mId}-away`).value) || null;
+
+            const { error } = await supabase
+                .from('matches')
+                .update({
+                    official_home_score: h,
+                    official_away_score: a
+                })
+                .eq('id', mId);
+
+            if (error) {
+                console.error('Error saving official score:', error);
+                return;
+            }
+
+            targetMatch.officialHome = h;
+            targetMatch.officialAway = a;
+            executeDynamicScoringEngine();
+            renderLeaderboardContainers();
+            if (selectedInspectorUser) executeAdminViewUserInspect(selectedInspectorUser);
+        }
+        async function executeRemoveUserAccount(name) {
+            if (!confirm(`Xóa thành viên ${name}?`)) return;
+
+            let user = profileDatabase.find(p => p.name.toLowerCase() === name.toLowerCase());
+            if (!user) return;
+
+            const { error } = await supabase
+                .from('users')
+                .delete()
+                .eq('id', user.id);
+
+            if (error) {
+                console.error('Error deleting user:', error);
+                return;
+            }
+
+            profileDatabase = profileDatabase.filter(p => p.name.toLowerCase() !== name.toLowerCase());
+            executeRenderSequence();
         }
         function executeRenderSequence() {
             if (currentSystemRole === "player") {
