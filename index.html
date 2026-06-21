@@ -148,32 +148,48 @@
     </div>
 
     <script>
-        // ========== SUPABASE INITIALIZATION ==========
-        const supabaseUrl = 'https://samygkvqashyfxptuozw.supabase.co';
-        const supabaseKey = 'sb_publishable_9ph4JbnO-vSXzRkOnLQZTQ_r0bT82RT';
-        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+        // ========== APP STATE ==========
+        window.app = {
+            currentSystemRole: "",
+            currentActiveUser: "",
+            selectedInspectorUser: "",
+            activeTab: "predictions",
+            matchDatabase: JSON.parse(localStorage.getItem('wc26_matches')) || [],
+            profileDatabase: JSON.parse(localStorage.getItem('wc26_profiles')) || [],
+            systemSettings: JSON.parse(localStorage.getItem('wc26_settings')) || { currentRound: "Vòng Bảng", quizQuestion: "Chưa có câu hỏi.", isTournamentOver: false },
+            currentUserId: null,
+            supabase: null
+        };
 
-        // ========== GLOBAL VARIABLES ==========
-        let currentSystemRole = "", currentActiveUser = "", selectedInspectorUser = "", activeTab = "predictions";
-        let matchDatabase = JSON.parse(localStorage.getItem('wc26_matches')) || [];
-        let profileDatabase = JSON.parse(localStorage.getItem('wc26_profiles')) || [];
-        let systemSettings = JSON.parse(localStorage.getItem('wc26_settings')) || { currentRound: "Vòng Bảng", quizQuestion: "Chưa có câu hỏi.", isTournamentOver: false };
-        let currentUserId = null;
+        // ========== SUPABASE INITIALIZATION ==========
+        function initSupabase() {
+            if (window.supabase && !window.app.supabase) {
+                const supabaseUrl = 'https://samygkvqashyfxptuozw.supabase.co';
+                const supabaseKey = 'sb_publishable_9ph4JbnO-vSXzRkOnLQZTQ_r0bT82RT';
+                window.app.supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+                console.log('✅ Supabase initialized');
+            } else if (!window.app.supabase) {
+                setTimeout(initSupabase, 100);
+            }
+        }
+        
+        initSupabase();
 
         // ========== DATA LOADING FUNCTIONS ==========
         async function loadAllDataFromSupabase() {
+            if (!window.app.supabase) return;
             try {
                 const [matches, users, settings] = await Promise.all([
-                    supabase.from('matches').select('*'),
-                    supabase.from('users').select('*'),
-                    supabase.from('settings').select('*').limit(1)
+                    window.app.supabase.from('matches').select('*'),
+                    window.app.supabase.from('users').select('*'),
+                    window.app.supabase.from('settings').select('*').limit(1)
                 ]);
 
                 if (matches.error) throw matches.error;
                 if (users.error) throw users.error;
 
                 // Convert Supabase data to format matching our app
-                matchDatabase = (matches.data || []).map(m => ({
+                window.app.matchDatabase = (matches.data || []).map(m => ({
                     id: m.id,
                     home: m.home_team,
                     away: m.away_team,
@@ -184,9 +200,9 @@
                 }));
 
                 // For users, we need to fetch predictions separately
-                profileDatabase = [];
+                window.app.profileDatabase = [];
                 for (const user of (users.data || [])) {
-                    const { data: preds } = await supabase
+                    const { data: preds } = await window.app.supabase
                         .from('predictions')
                         .select('*')
                         .eq('user_id', user.id);
@@ -201,7 +217,7 @@
                         });
                     }
 
-                    profileDatabase.push({
+                    window.app.profileDatabase.push({
                         id: user.id,
                         name: user.username,
                         predictions: predictions,
@@ -213,7 +229,7 @@
 
                 // Load settings
                 if (settings.data && settings.data.length > 0) {
-                    systemSettings = settings.data[0];
+                    window.app.systemSettings = settings.data[0];
                 }
 
                 console.log('✅ Data loaded from Supabase');
@@ -224,21 +240,30 @@
             }
         }
 
-        // Load data on page start
-        window.addEventListener('load', loadAllDataFromSupabase);
+        // Load data on page start (after Supabase initializes)
+        async function initPageData() {
+            // Wait for Supabase to be initialized
+            let attempts = 0;
+            while (!supabase && attempts < 50) {
+                await new Promise(r => setTimeout(r, 100));
+                attempts++;
+            }
+            if (supabase) await loadAllDataFromSupabase();
+        }
+        window.addEventListener('load', initPageData);
         
         function executeLoginGate() {
             const secretInput = document.getElementById('login-password').value.trim();
             if (secretInput === "Monica") { 
-                currentSystemRole = "admin"; 
-                currentActiveUser = "Ban Quản Trị"; 
+                window.app.currentSystemRole = "admin"; 
+                window.app.currentActiveUser = "Ban Quản Trị"; 
                 unmountAllViews(); 
                 document.getElementById('screen-admin-dashboard').classList.remove('hidden'); 
                 syncAdminControlPanelValues(); 
                 executeRenderSequence(); 
             }
             else if (secretInput === "kumonkumi") { 
-                currentSystemRole = "player"; 
+                window.app.currentSystemRole = "player"; 
                 unmountAllViews(); 
                 document.getElementById('screen-name-prompt').classList.remove('hidden'); 
             }
@@ -250,17 +275,17 @@
         async function executePlayerOnboarding() {
             const rawName = document.getElementById('player-identity-input').value.trim();
             if (!rawName) return;
-            currentActiveUser = rawName;
+            window.app.currentActiveUser = rawName;
 
             // Check if user exists in local cache
-            let userMatch = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            let userMatch = window.app.profileDatabase.find(p => p.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
             
             if (!userMatch) {
                 // Create new user in Supabase
-                const { data, error } = await supabase
+                const { data, error } = await window.app.supabase
                     .from('users')
                     .insert({
-                        username: currentActiveUser,
+                        username: window.app.currentActiveUser,
                         auth_password: 'default',
                         quiz_answer: '',
                         bonus_points: 0,
@@ -276,10 +301,10 @@
 
                 // Add to local cache
                 if (data && data.length > 0) {
-                    currentUserId = data[0].id;
-                    profileDatabase.push({
-                        id: currentUserId,
-                        name: currentActiveUser,
+                    window.app.currentUserId = data[0].id;
+                    window.app.profileDatabase.push({
+                        id: window.app.currentUserId,
+                        name: window.app.currentActiveUser,
                         predictions: {},
                         quizAnswer: '',
                         bonusPoints: 0,
@@ -287,18 +312,18 @@
                     });
                 }
             } else {
-                currentUserId = userMatch.id;
+                window.app.currentUserId = userMatch.id;
             }
 
             unmountAllViews(); 
             document.getElementById('screen-play-dashboard').classList.remove('hidden');
-            const activeRecord = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            const activeRecord = window.app.profileDatabase.find(p => p.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
             document.getElementById('player-quiz-answer-field').value = activeRecord.quizAnswer || "";
             executeSwitchTab('predictions');
             executeRenderSequence();
         }
         function executeSwitchTab(targetTab) {
-            activeTab = targetTab;
+            window.app.activeTab = targetTab;
             ['predictions', 'trivia', 'leaderboard', 'profile'].forEach(tab => {
                 document.getElementById(`tab-view-${tab}`).classList.add('hidden');
                 document.getElementById(`tab-btn-${tab}`).className = "py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all text-stone-400 hover:text-white";
@@ -313,7 +338,7 @@
             const group = document.getElementById('new-match-group').value.trim() || "Trận đấu";
             if(!home || !away) { alert("Vui lòng nhập đầy đủ tên đội nhà và đội khách!"); return; }
 
-            const { data, error } = await supabase
+            const { data, error } = await window.app.supabase
                 .from('matches')
                 .insert({
                     home_team: home,
@@ -331,7 +356,7 @@
             }
 
             if (data && data.length > 0) {
-                matchDatabase.push({
+                window.app.matchDatabase.push({
                     id: data[0].id,
                     home: home,
                     away: away,
@@ -348,7 +373,7 @@
         }
 
         async function executeDeleteSingleMatch(mId) {
-            const { error } = await supabase
+            const { error } = await window.app.supabase
                 .from('matches')
                 .delete()
                 .eq('id', mId);
@@ -358,14 +383,14 @@
                 return;
             }
 
-            matchDatabase = matchDatabase.filter(m => m.id !== mId);
+            window.app.matchDatabase = window.app.matchDatabase.filter(m => m.id !== mId);
             executeRenderSequence();
         }
 
         async function executeClearAllMatches() {
             if(!confirm("Bạn có chắc chắn muốn xóa TOÀN BỘ trận đấu hiện tại không?")) return;
 
-            const { error } = await supabase
+            const { error } = await window.app.supabase
                 .from('matches')
                 .delete()
                 .neq('id', 0);
@@ -375,28 +400,28 @@
                 return;
             }
 
-            matchDatabase = [];
+            window.app.matchDatabase = [];
             executeRenderSequence();
         }
-        function executeLogoutTeardown() { currentSystemRole = ""; currentActiveUser = ""; unmountAllViews(); document.getElementById('screen-login').classList.remove('hidden'); }
+        function executeLogoutTeardown() { window.app.currentSystemRole = ""; window.app.currentActiveUser = ""; unmountAllViews(); document.getElementById('screen-login').classList.remove('hidden'); }
         function unmountAllViews() { ['screen-login', 'screen-name-prompt', 'screen-play-dashboard', 'screen-admin-dashboard'].forEach(id => document.getElementById(id).classList.add('hidden')); }
         function syncAdminControlPanelValues() {
-            document.getElementById('admin-round-dropdown').value = systemSettings.currentRound;
-            document.getElementById('admin-quiz-input').value = systemSettings.quizQuestion;
-            if (systemSettings.isTournamentOver) { document.getElementById('btn-end-tournament').classList.add('hidden'); document.getElementById('btn-reopen-tournament').classList.remove('hidden'); }
+            document.getElementById('admin-round-dropdown').value = window.app.systemSettings.currentRound;
+            document.getElementById('admin-quiz-input').value = window.app.systemSettings.quizQuestion;
+            if (window.app.systemSettings.isTournamentOver) { document.getElementById('btn-end-tournament').classList.add('hidden'); document.getElementById('btn-reopen-tournament').classList.remove('hidden'); }
             else { document.getElementById('btn-end-tournament').classList.remove('hidden'); document.getElementById('btn-reopen-tournament').classList.add('hidden'); }
         }
-        function executeAdminRoundUpdate() { systemSettings.currentRound = document.getElementById('admin-round-dropdown').value; commitStateToLocalStorage(); executeRenderSequence(); }
-        function executeAdminQuizBroadcast() { systemSettings.quizQuestion = document.getElementById('admin-quiz-input').value.trim(); commitStateToLocalStorage(); }
-        function executeToggleTournamentStatus(v) { systemSettings.isTournamentOver = v; commitStateToLocalStorage(); syncAdminControlPanelValues(); executeRenderSequence(); }
+        function executeAdminRoundUpdate() { window.app.systemSettings.currentRound = document.getElementById('admin-round-dropdown').value; commitStateToLocalStorage(); executeRenderSequence(); }
+        function executeAdminQuizBroadcast() { window.app.systemSettings.quizQuestion = document.getElementById('admin-quiz-input').value.trim(); commitStateToLocalStorage(); }
+        function executeToggleTournamentStatus(v) { window.app.systemSettings.isTournamentOver = v; commitStateToLocalStorage(); syncAdminControlPanelValues(); executeRenderSequence(); }
         async function executeAdjustTriviaBonus(playerName, amount) {
-            let user = profileDatabase.find(p => p.name.toLowerCase() === playerName.toLowerCase());
+            let user = window.app.profileDatabase.find(p => p.name.toLowerCase() === playerName.toLowerCase());
             if (!user) return;
 
             user.bonusPoints = (user.bonusPoints || 0) + amount;
             if (user.bonusPoints < 0) user.bonusPoints = 0;
 
-            const { error } = await supabase
+            const { error } = await window.app.supabase
                 .from('users')
                 .update({ bonus_points: user.bonusPoints })
                 .eq('id', user.id);
@@ -408,12 +433,12 @@
 
             executeDynamicScoringEngine();
             executeRenderSequence();
-            if (selectedInspectorUser) executeAdminViewUserInspect(selectedInspectorUser);
+            if (window.app.selectedInspectorUser) executeAdminViewUserInspect(window.app.selectedInspectorUser);
         }
         async function executeDynamicScoringEngine() {
-            profileDatabase.forEach(player => {
+            window.app.profileDatabase.forEach(player => {
                 let pts = player.bonusPoints || 0;
-                matchDatabase.forEach(match => {
+                window.app.matchDatabase.forEach(match => {
                     if (match.officialHome !== null && match.officialAway !== null && player.predictions[`match-${match.id}`]) {
                         const pred = player.predictions[`match-${match.id}`];
                         if (pred.home !== "" && pred.away !== "") {
@@ -426,7 +451,7 @@
                 player.score = pts;
 
                 // Save score to Supabase
-                supabase
+                window.app.supabase
                     .from('users')
                     .update({ total_score: pts })
                     .eq('id', player.id)
@@ -435,16 +460,16 @@
             });
         }
         async function executeSavePredictionInput(mId) {
-            if (systemSettings.isTournamentOver) return;
+            if (window.app.systemSettings.isTournamentOver) return;
             
-            let activeRecord = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            let activeRecord = window.app.profileDatabase.find(p => p.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
             if (!activeRecord) return;
 
             const homeScore = parseInt(document.getElementById(`pred-${mId}-home`).value) || null;
             const awayScore = parseInt(document.getElementById(`pred-${mId}-away`).value) || null;
 
             // Upsert prediction to Supabase
-            const { error } = await supabase
+            const { error } = await window.app.supabase
                 .from('predictions')
                 .upsert({
                     user_id: activeRecord.id,
@@ -469,14 +494,14 @@
         }
 
         async function executeSaveQuizResponse() {
-            if (systemSettings.isTournamentOver) return;
+            if (window.app.systemSettings.isTournamentOver) return;
             
-            let activeRecord = profileDatabase.find(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            let activeRecord = window.app.profileDatabase.find(p => p.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
             if (!activeRecord) return;
 
             const answer = document.getElementById('player-quiz-answer-field').value;
 
-            const { error } = await supabase
+            const { error } = await window.app.supabase
                 .from('users')
                 .update({ quiz_answer: answer })
                 .eq('id', activeRecord.id);
@@ -490,13 +515,13 @@
         }
 
         async function executeSaveOfficialScoreInput(mId) {
-            let targetMatch = matchDatabase.find(m => m.id === mId);
+            let targetMatch = window.app.matchDatabase.find(m => m.id === mId);
             if (!targetMatch) return;
 
             const h = parseInt(document.getElementById(`official-${mId}-home`).value) || null;
             const a = parseInt(document.getElementById(`official-${mId}-away`).value) || null;
 
-            const { error } = await supabase
+            const { error } = await window.app.supabase
                 .from('matches')
                 .update({
                     official_home_score: h,
@@ -513,15 +538,15 @@
             targetMatch.officialAway = a;
             executeDynamicScoringEngine();
             renderLeaderboardContainers();
-            if (selectedInspectorUser) executeAdminViewUserInspect(selectedInspectorUser);
+            if (window.app.selectedInspectorUser) executeAdminViewUserInspect(window.app.selectedInspectorUser);
         }
         async function executeRemoveUserAccount(name) {
             if (!confirm(`Xóa thành viên ${name}?`)) return;
 
-            let user = profileDatabase.find(p => p.name.toLowerCase() === name.toLowerCase());
+            let user = window.app.profileDatabase.find(p => p.name.toLowerCase() === name.toLowerCase());
             if (!user) return;
 
-            const { error } = await supabase
+            const { error } = await window.app.supabase
                 .from('users')
                 .delete()
                 .eq('id', user.id);
@@ -531,47 +556,47 @@
                 return;
             }
 
-            profileDatabase = profileDatabase.filter(p => p.name.toLowerCase() !== name.toLowerCase());
+            window.app.profileDatabase = window.app.profileDatabase.filter(p => p.name.toLowerCase() !== name.toLowerCase());
             executeRenderSequence();
         }
         function executeRenderSequence() {
-            if (currentSystemRole === "player") {
-                document.getElementById('player-welcome-badge').innerText = `Tài khoản: ${currentActiveUser}`;
-                document.getElementById('player-round-indicator').innerText = `Vòng đấu: ${systemSettings.currentRound}`;
-                document.getElementById('player-quiz-question-display').innerText = systemSettings.quizQuestion;
-                if (systemSettings.isTournamentOver) { document.getElementById('player-prize-card').classList.add('hidden'); document.getElementById('player-championship-podium').classList.remove('hidden'); let top = [...profileDatabase].sort((a,b)=>b.score-a.score)[0]; document.getElementById('podium-winner-name').innerText = top?top.name:"Chưa rõ"; document.getElementById('podium-winner-score').innerText = top?`Điểm: ${top.score}`:""; }
+            if (window.app.currentSystemRole === "player") {
+                document.getElementById('player-welcome-badge').innerText = `Tài khoản: ${window.app.currentActiveUser}`;
+                document.getElementById('player-round-indicator').innerText = `Vòng đấu: ${window.app.systemSettings.currentRound}`;
+                document.getElementById('player-quiz-question-display').innerText = window.app.systemSettings.quizQuestion;
+                if (window.app.systemSettings.isTournamentOver) { document.getElementById('player-prize-card').classList.add('hidden'); document.getElementById('player-championship-podium').classList.remove('hidden'); let top = [...window.app.profileDatabase].sort((a,b)=>b.score-a.score)[0]; document.getElementById('podium-winner-name').innerText = top?top.name:"Chưa rõ"; document.getElementById('podium-winner-score').innerText = top?`Điểm: ${top.score}`:""; }
                 else { document.getElementById('player-championship-podium').classList.add('hidden'); document.getElementById('player-prize-card').classList.remove('hidden'); }
                 renderPlayerFixturesList();
-                if(activeTab === 'profile') executeRenderProfileStats();
-            } else if (currentSystemRole === "admin") { renderAdminFixturesList(); renderAdminInspectorControls(); }
+                if(window.app.activeTab === 'profile') executeRenderProfileStats();
+            } else if (window.app.currentSystemRole === "admin") { renderAdminFixturesList(); renderAdminInspectorControls(); }
             renderLeaderboardContainers();
         }
         function renderPlayerFixturesList() {
-            if (matchDatabase.length === 0) { document.getElementById('player-fixtures-container').innerHTML = `<p class="text-sm text-stone-500 italic text-center py-8">Chưa có trận đấu nào được tạo bởi Ban Quản Trị.</p>`; return; }
-            let prRecord = profileDatabase.find(pl => pl.name.toLowerCase() === currentActiveUser.toLowerCase());
-            document.getElementById('player-fixtures-container').innerHTML = matchDatabase.map(m => {
+            if (window.app.matchDatabase.length === 0) { document.getElementById('player-fixtures-container').innerHTML = `<p class="text-sm text-stone-500 italic text-center py-8">Chưa có trận đấu nào được tạo bởi Ban Quản Trị.</p>`; return; }
+            let prRecord = window.app.profileDatabase.find(pl => pl.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
+            document.getElementById('player-fixtures-container').innerHTML = window.app.matchDatabase.map(m => {
                 let h = prRecord&&prRecord.predictions[`match-${m.id}`]?prRecord.predictions[`match-${m.id}`].home:"", a = prRecord&&prRecord.predictions[`match-${m.id}`]?prRecord.predictions[`match-${m.id}`].away:"";
                 let badge = m.officialHome!==null? `<span class="text-xs text-emerald-400 font-bold">KQ: ${m.officialHome}-${m.officialAway}</span>`:`<span class="text-xs text-stone-500">Chờ đấu</span>`;
                 return `<div class="bg-stone-900/50 p-4 rounded-xl border border-stone-800 flex justify-between items-center"><div><p class="text-xs text-emerald-500 font-bold">${m.group}</p><p class="text-sm font-bold text-white">${m.home} vs ${m.away}</p></div><div class="flex items-center gap-1"><input type="number" value="${h}" id="pred-${m.id}-home" oninput="executeSavePredictionInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"><span>-</span><input type="number" value="${a}" id="pred-${m.id}-away" oninput="executeSavePredictionInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"></div><div>${badge}</div></div>`;
             }).join('');
         }
         function renderAdminFixturesList() {
-            if (matchDatabase.length === 0) { document.getElementById('admin-fixtures-container').innerHTML = `<p class="text-xs text-stone-500 italic text-center py-4">Danh sách trống. Hãy thêm trận đấu ở form phía trên!</p>`; return; }
-            document.getElementById('admin-fixtures-container').innerHTML = matchDatabase.map(m => {
+            if (window.app.matchDatabase.length === 0) { document.getElementById('admin-fixtures-container').innerHTML = `<p class="text-xs text-stone-500 italic text-center py-4">Danh sách trống. Hãy thêm trận đấu ở form phía trên!</p>`; return; }
+            document.getElementById('admin-fixtures-container').innerHTML = window.app.matchDatabase.map(m => {
                 let h = m.officialHome!==null?m.officialHome:"", a = m.officialAway!==null?m.officialAway:"";
                 return `<div class="bg-stone-900/40 p-3 rounded-xl border border-stone-800 flex justify-between items-center"><div><p class="text-xs text-stone-500">${m.group}</p><p class="text-sm font-bold text-white">${m.home} - ${m.away}</p></div><div class="flex items-center gap-2"><div class="flex items-center gap-1"><input type="number" value="${h}" id="official-${m.id}-home" oninput="executeSaveOfficialScoreInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"><span>:</span><input type="number" value="${a}" id="official-${m.id}-away" oninput="executeSaveOfficialScoreInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"></div><button onclick="executeDeleteSingleMatch(${m.id})" class="text-xs text-red-500 bg-stone-950 px-2 py-1 rounded border border-stone-800 ml-4 hover:bg-red-950">Xóa</button></div></div>`;
             }).join('');
         }
         function renderLeaderboardContainers() {
-            let sorted = [...profileDatabase].sort((a,b)=>b.score-a.score);
-            let rows = sorted.map((p,i)=>`<tr class="border-b border-stone-900/60 text-xs"><td class="p-3 text-center font-bold text-stone-400">${i+1}</td><td class="p-3 text-white flex justify-between font-bold"><span>${p.name} ${i===0?'👑':''}</span>${currentSystemRole==='admin'?`<button onclick="executeRemoveUserAccount('${p.name}')" class="text-10px text-red-400 bg-stone-900 px-2 py-0.5 rounded border border-stone-800">Xóa</button>`:''}</td><td class="p-3 text-right text-emerald-500 font-black text-sm">${p.score}đ <span class="text-10px text-stone-500 font-normal block sm:inline sm:ml-1">(Bonus: ${p.bonusPoints||0}đ)</span></td></tr>`).join('');
+            let sorted = [...window.app.profileDatabase].sort((a,b)=>b.score-a.score);
+            let rows = sorted.map((p,i)=>`<tr class="border-b border-stone-900/60 text-xs"><td class="p-3 text-center font-bold text-stone-400">${i+1}</td><td class="p-3 text-white flex justify-between font-bold"><span>${p.name} ${i===0?'👑':''}</span>${window.app.currentSystemRole==='admin'?`<button onclick="executeRemoveUserAccount('${p.name}')" class="text-10px text-red-400 bg-stone-900 px-2 py-0.5 rounded border border-stone-800">Xóa</button>`:''}</td><td class="p-3 text-right text-emerald-500 font-black text-sm">${p.score}đ <span class="text-10px text-stone-500 font-normal block sm:inline sm:ml-1">(Bonus: ${p.bonusPoints||0}đ)</span></td></tr>`).join('');
             let t = `<div class="bg-stone-950/60 border border-stone-900 rounded-2xl p-5"><h3 class="text-xs font-black uppercase text-white mb-3 tracking-wider">BXH Gia Đình</h3><table class="w-full text-left"><thead><tr class="text-10px text-stone-500 uppercase border-b border-stone-900"><th class="p-2 w-12 text-center">#</th><th class="p-2">Thành Viên</th><th class="p-2 text-right">Điểm Số</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="text-center text-stone-600 italic p-6">Chưa có ai tham gia bảng xếp hạng</td></tr>'}</tbody></table></div>`;
-            if(currentSystemRole==="player") document.getElementById('player-side-leaderboard-container').innerHTML=t;
-            else if(currentSystemRole==="admin") document.getElementById('admin-side-leaderboard-container').innerHTML=t;
+            if(window.app.currentSystemRole==="player") document.getElementById('player-side-leaderboard-container').innerHTML=t;
+            else if(window.app.currentSystemRole==="admin") document.getElementById('admin-side-leaderboard-container').innerHTML=t;
         }
         function executeRenderProfileStats() {
-            let sorted = [...profileDatabase].sort((a,b)=>b.score-a.score);
-            let idx = sorted.findIndex(p => p.name.toLowerCase() === currentActiveUser.toLowerCase());
+            let sorted = [...window.app.profileDatabase].sort((a,b)=>b.score-a.score);
+            let idx = sorted.findIndex(p => p.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
             let user = sorted[idx];
             if(!user) return;
             
@@ -587,12 +612,12 @@
             document.getElementById('profile-badges-container').innerHTML = badges.join('');
         }
         function renderAdminInspectorControls() {
-            document.getElementById('admin-inspector-tabs').innerHTML = profileDatabase.map(p => `<button onclick="executeAdminViewUserInspect('${p.name}')" class="px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-800 text-xs font-bold text-white">${p.name}</button>`).join('');
+            document.getElementById('admin-inspector-tabs').innerHTML = window.app.profileDatabase.map(p => `<button onclick="executeAdminViewUserInspect('${p.name}')" class="px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-800 text-xs font-bold text-white">${p.name}</button>`).join('');
         }
         function executeAdminViewUserInspect(name) {
-            selectedInspectorUser = name; let user = profileDatabase.find(p=>p.name.toLowerCase()===name.toLowerCase());
+            window.app.selectedInspectorUser = name; let user = window.app.profileDatabase.find(p=>p.name.toLowerCase()===name.toLowerCase());
             if(!user) return;
-            let pr = matchDatabase.map(m=>{ let prd = user.predictions[`match-${m.id}`]?`${user.predictions[`match-${m.id}`].home}-${user.predictions[`match-${m.id}`].away}`:"Chưa chọn"; return `<div class="p-2 bg-stone-950 rounded border border-stone-900 text-11px text-stone-300 flex justify-between"><span>${m.home}-${m.away}</span><span class="text-blue-400 font-bold">Đoán: ${prd}</span></div>`; }).join('');
+            let pr = window.app.matchDatabase.map(m=>{ let prd = user.predictions[`match-${m.id}`]?`${user.predictions[`match-${m.id}`].home}-${user.predictions[`match-${m.id}`].away}`:"Chưa chọn"; return `<div class="p-2 bg-stone-950 rounded border border-stone-900 text-11px text-stone-300 flex justify-between"><span>${m.home}-${m.away}</span><span class="text-blue-400 font-bold">Đoán: ${prd}</span></div>`; }).join('');
             
             document.getElementById('admin-inspector-viewport').innerHTML = `
                 <div class="space-y-4 w-full text-left">
@@ -610,7 +635,7 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${pr}</div>
                 </div>`;
         }
-        function commitStateToLocalStorage() { localStorage.setItem('wc26_matches', JSON.stringify(matchDatabase)); localStorage.setItem('wc26_profiles', JSON.stringify(profileDatabase)); localStorage.setItem('wc26_settings', JSON.stringify(systemSettings)); }
+        function commitStateToLocalStorage() { localStorage.setItem('wc26_matches', JSON.stringify(window.app.matchDatabase)); localStorage.setItem('wc26_profiles', JSON.stringify(window.app.profileDatabase)); localStorage.setItem('wc26_settings', JSON.stringify(window.app.systemSettings)); }
     </script>
 </body>
 </html>
