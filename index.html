@@ -196,7 +196,8 @@
                     group: m.match_group,
                     stadium: m.stadium,
                     officialHome: m.official_home_score,
-                    officialAway: m.official_away_score
+                    officialAway: m.official_away_score,
+                    status: m.status || 'upcoming'
                 }));
 
                 // For users, we need to fetch predictions separately
@@ -342,7 +343,8 @@
                     away_team: away,
                     match_group: group,
                     official_home_score: null,
-                    official_away_score: null
+                    official_away_score: null,
+                    status: 'upcoming'
                 })
                 .select();
 
@@ -359,7 +361,8 @@
                     away: away,
                     group: group,
                     officialHome: null,
-                    officialAway: null
+                    officialAway: null,
+                    status: 'upcoming'
                 });
             }
 
@@ -452,6 +455,19 @@
         async function executeSavePredictionInput(mId) {
             if (window.app.systemSettings.isTournamentOver) return;
             
+            // Check match status
+            let targetMatch = window.app.matchDatabase.find(m => m.id === mId);
+            if (!targetMatch) {
+                console.warn('❌ Match not found');
+                return;
+            }
+            
+            if (targetMatch.status !== 'upcoming') {
+                console.warn(`⚠️ Match status is ${targetMatch.status}, cannot predict`);
+                showToastNotification(`❌ Trận đấu đã ${targetMatch.status === 'locked' ? 'khóa' : 'kết thúc'}, không thể dự đoán`, 'error');
+                return;
+            }
+            
             let activeRecord = window.app.profileDatabase.find(p => p.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
             if (!activeRecord) {
                 console.warn('❌ Active record not found');
@@ -531,7 +547,8 @@
                 .from('matches')
                 .update({
                     official_home_score: h,
-                    official_away_score: a
+                    official_away_score: a,
+                    status: 'finished'
                 })
                 .eq('id', mId);
 
@@ -542,8 +559,33 @@
 
             targetMatch.officialHome = h;
             targetMatch.officialAway = a;
+            targetMatch.status = 'finished';
             executeDynamicScoringEngine();
             renderLeaderboardContainers();
+            executeRenderSequence();
+        }
+
+        async function executeToggleMatchLock(mId) {
+            let targetMatch = window.app.matchDatabase.find(m => m.id === mId);
+            if (!targetMatch) return;
+
+            const newStatus = targetMatch.status === 'upcoming' ? 'locked' : 'upcoming';
+            console.log(`🔄 Toggling match ${mId} status from ${targetMatch.status} to ${newStatus}`);
+
+            const { error } = await window.app.supabase
+                .from('matches')
+                .update({ status: newStatus })
+                .eq('id', mId);
+
+            if (error) {
+                console.error('Error updating match status:', error);
+                showToastNotification('❌ Lỗi khi thay đổi trạng thái', 'error');
+                return;
+            }
+
+            targetMatch.status = newStatus;
+            showToastNotification(`✅ Trạng thái: ${newStatus === 'locked' ? '🟡 Đã khóa' : '🔵 Chưa diễn ra'}`, 'success');
+            renderAdminFixturesList();
         }
         async function executeRemoveUserAccount(name) {
             if (!confirm(`Xóa thành viên ${name}?`)) return;
@@ -577,19 +619,33 @@
             renderLeaderboardContainers();
         }
         function renderPlayerFixturesList() {
-            if (window.app.matchDatabase.length === 0) { document.getElementById('player-fixtures-container').innerHTML = `<p class="text-sm text-stone-500 italic text-center py-8">Chưa có trận đấu nào được tạo bởi Ban Quản Trị.</p>`; return; }
+            if (window.app.matchDatabase.length === 0) { document.getElementById('player-fixtures-container').innerHTML = `<p class="text-sm text-stone-500 italic text-center py-8">Chưa có trận đấu nào được tạo bởi Ban QuAdmin Trị.</p>`; return; }
             let prRecord = window.app.profileDatabase.find(pl => pl.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
             document.getElementById('player-fixtures-container').innerHTML = window.app.matchDatabase.map(m => {
                 let h = prRecord&&prRecord.predictions[`match-${m.id}`]?prRecord.predictions[`match-${m.id}`].home:"", a = prRecord&&prRecord.predictions[`match-${m.id}`]?prRecord.predictions[`match-${m.id}`].away:"";
-                let badge = m.officialHome!==null? `<span class="text-xs text-emerald-400 font-bold">KQ: ${m.officialHome}-${m.officialAway}</span>`:`<span class="text-xs text-stone-500">Chờ đấu</span>`;
-                return `<div class="bg-stone-900/50 p-4 rounded-xl border border-stone-800 flex justify-between items-center"><div><p class="text-xs text-emerald-500 font-bold">${m.group}</p><p class="text-sm font-bold text-white">${m.home} vs ${m.away}</p></div><div class="flex items-center gap-1"><input type="number" value="${h}" id="pred-${m.id}-home" onblur="executeSavePredictionInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"><span>-</span><input type="number" value="${a}" id="pred-${m.id}-away" onblur="executeSavePredictionInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"></div><div>${badge}</div></div>`;
+                let statusBadge = '';
+                let inputDisabled = '';
+                if (m.status === 'upcoming') {
+                    statusBadge = `<span class="text-xs text-blue-400 font-bold">🔵 Chưa diễn ra</span>`;
+                    inputDisabled = '';
+                } else if (m.status === 'locked') {
+                    statusBadge = `<span class="text-xs text-yellow-400 font-bold">🟡 Đã khóa</span>`;
+                    inputDisabled = 'disabled';
+                } else if (m.status === 'finished') {
+                    statusBadge = `<span class="text-xs text-emerald-400 font-bold">🟢 KQ: ${m.officialHome}-${m.officialAway}</span>`;
+                    inputDisabled = 'disabled';
+                }
+                return `<div class="bg-stone-900/50 p-4 rounded-xl border border-stone-800 flex justify-between items-center"><div><p class="text-xs text-emerald-500 font-bold">${m.group}</p><p class="text-sm font-bold text-white">${m.home} vs ${m.away}</p></div><div class="flex items-center gap-1"><input type="number" value="${h}" id="pred-${m.id}-home" onblur="executeSavePredictionInput(${m.id})" ${inputDisabled} class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"><span>-</span><input type="number" value="${a}" id="pred-${m.id}-away" onblur="executeSavePredictionInput(${m.id})" ${inputDisabled} class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"></div><div>${statusBadge}</div></div>`;
             }).join('');
         }
         function renderAdminFixturesList() {
             if (window.app.matchDatabase.length === 0) { document.getElementById('admin-fixtures-container').innerHTML = `<p class="text-xs text-stone-500 italic text-center py-4">Danh sách trống. Hãy thêm trận đấu ở form phía trên!</p>`; return; }
             document.getElementById('admin-fixtures-container').innerHTML = window.app.matchDatabase.map(m => {
                 let h = m.officialHome!==null?m.officialHome:"", a = m.officialAway!==null?m.officialAway:"";
-                return `<div class="bg-stone-900/40 p-3 rounded-xl border border-stone-800 flex justify-between items-center"><div><p class="text-xs text-stone-500">${m.group}</p><p class="text-sm font-bold text-white">${m.home} - ${m.away}</p></div><div class="flex items-center gap-2"><div class="flex items-center gap-1"><input type="number" value="${h}" id="official-${m.id}-home" oninput="executeSaveOfficialScoreInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"><span>:</span><input type="number" value="${a}" id="official-${m.id}-away" oninput="executeSaveOfficialScoreInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"></div><button onclick="executeDeleteSingleMatch(${m.id})" class="text-xs text-red-500 bg-stone-950 px-2 py-1 rounded border border-stone-800 ml-4 hover:bg-red-950">Xóa</button></div></div>`;
+                let statusLabel = m.status === 'upcoming' ? '🔵 Mở' : m.status === 'locked' ? '🟡 Khóa' : '🟢 Kết';
+                let lockBtnText = m.status === 'upcoming' ? '🔒 Khóa' : '🔓 Mở';
+                let lockBtnColor = m.status === 'upcoming' ? 'bg-yellow-950 text-yellow-400 border-yellow-900' : 'bg-blue-950 text-blue-400 border-blue-900';
+                return `<div class="bg-stone-900/40 p-3 rounded-xl border border-stone-800 flex justify-between items-center"><div><p class="text-xs text-stone-400">${m.group} <span class="text-10px font-bold ml-1">${statusLabel}</span></p><p class="text-sm font-bold text-white">${m.home} - ${m.away}</p></div><div class="flex items-center gap-2"><div class="flex items-center gap-1"><input type="number" value="${h}" id="official-${m.id}-home" oninput="executeSaveOfficialScoreInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"><span>:</span><input type="number" value="${a}" id="official-${m.id}-away" oninput="executeSaveOfficialScoreInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"></div><button onclick="executeToggleMatchLock(${m.id})" class="text-xs font-bold ${lockBtnColor} px-2 py-1 rounded border ml-2">${lockBtnText}</button><button onclick="executeDeleteSingleMatch(${m.id})" class="text-xs text-red-500 bg-stone-950 px-2 py-1 rounded border border-stone-800 ml-1 hover:bg-red-950">Xóa</button></div></div>`;
             }).join('');
         }
         function renderLeaderboardContainers() {
