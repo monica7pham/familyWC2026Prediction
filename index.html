@@ -469,8 +469,10 @@
             let targetMatch = window.app.matchDatabase.find(m => m.id === mId);
             if (!targetMatch) return;
 
-            const h = parseInt(document.getElementById(`official-${mId}-home`).value) || null;
-            const a = parseInt(document.getElementById(`official-${mId}-away`).value) || null;
+            const homeStr = document.getElementById(`official-${mId}-home`).value.trim();
+            const awayStr = document.getElementById(`official-${mId}-away`).value.trim();
+            const h = homeStr === '' ? null : parseInt(homeStr);
+            const a = awayStr === '' ? null : parseInt(awayStr);
 
             const { error } = await window.app.supabase
                 .from('matches')
