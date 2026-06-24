@@ -62,14 +62,11 @@
         </div>
 
         <div id="tab-view-trivia" class="space-y-4 hidden">
-            <div class="bg-stone-950/60 border border-stone-900 rounded-2xl p-6 space-y-4">
-                <div class="flex justify-between items-center border-b border-stone-900 pb-3">
-                    <h3 class="text-sm font-black text-white uppercase tracking-wide">CÂU HỎI HÀNG NGÀY</h3>
-                    <span class="text-10px bg-blue-950 text-blue-400 px-2.5 py-1 rounded-md font-bold uppercase">Trả lời đúng: +1 Điểm</span>
-                </div>
-                <p id="player-quiz-question-display" class="text-base font-bold text-stone-200 italic py-2"></p>
-                <input type="text" id="player-quiz-answer-field" oninput="executeSaveQuizResponse()" placeholder="Gõ câu trả lời của bạn vào đây..." class="w-full bg-stone-950 border border-stone-800 text-white px-4 py-3.5 rounded-xl focus:outline-none focus:border-emerald-600 text-sm font-medium">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-sm font-black text-white uppercase tracking-wide">📚 CÂU HỎI TRIVIA</h3>
+                <span class="text-10px bg-blue-950 text-blue-400 px-2.5 py-1 rounded-md font-bold uppercase">Trả lời đúng: +1 Điểm</span>
             </div>
+            <div id="player-trivia-questions-container" class="space-y-4"></div>
         </div>
 
         <div id="tab-view-leaderboard" class="space-y-4 hidden">
@@ -127,10 +124,7 @@
                     <button id="btn-end-tournament" onclick="executeToggleTournamentStatus(true)" class="w-full bg-red-950 text-red-400 font-black py-2.5 rounded-xl text-xs uppercase border border-red-900">Kết Thúc Giải Đấu</button>
                     <button id="btn-reopen-tournament" onclick="executeToggleTournamentStatus(false)" class="w-full bg-stone-900 text-stone-400 font-bold py-2.5 rounded-xl text-xs uppercase border border-stone-800 hidden">Mở Lại Giải Đấu</button>
                 </div>
-                <div class="bg-stone-950/60 border border-stone-900 rounded-2xl p-5 space-y-4">
-                    <label class="text-xs font-bold text-stone-400 uppercase">Câu hỏi Trivia hôm nay</label>
-                    <textarea id="admin-quiz-input" rows="3" oninput="executeAdminQuizBroadcast()" placeholder="Nhập câu hỏi..." class="w-full bg-stone-900 text-white p-3 rounded-xl focus:outline-none"></textarea>
-                </div>
+                <div id="admin-trivia-section" class="bg-stone-950/60 border border-stone-900 rounded-2xl p-5 space-y-4"></div>
                 <div id="admin-side-leaderboard-container"></div>
             </div>
             <div class="lg:col-span-2 space-y-6">
@@ -139,14 +133,14 @@
                     <div id="admin-fixtures-container" class="space-y-4"></div>
                 </div>
                 <div class="bg-stone-950/60 border border-stone-900 rounded-2xl p-5 space-y-4">
-                    <label class="text-xs font-bold text-emerald-400 uppercase">Kiểm tra Thành Viên & Cộng điểm Trivia</label>
-                    <div class="flex flex-wrap gap-2" id="admin-inspector-tabs"></div>
-                    <div id="admin-inspector-viewport" class="bg-stone-900/30 p-4 rounded-xl min-h-32 text-xs text-stone-500 italic">Chọn thành viên để chấm điểm Trivia hoặc xem dự đoán.</div>
+                    <label class="text-xs font-bold text-emerald-400 uppercase">Xem Đáp Án Chi Tiết Của Người Chơi</label>
+                    <div id="admin-trivia-responses-container" class="bg-stone-900/30 p-4 rounded-xl min-h-32 text-xs text-stone-500 italic">Chọn một câu hỏi ở phía trên để xem danh sách đáp án.</div>
                 </div>
             </div>
         </div>
     </div>
 
+    <script src="js/trivia.js"></script>
     <script>
         // ========== APP STATE ==========
         window.app = {
@@ -156,7 +150,7 @@
             activeTab: "predictions",
             matchDatabase: JSON.parse(localStorage.getItem('wc26_matches')) || [],
             profileDatabase: JSON.parse(localStorage.getItem('wc26_profiles')) || [],
-            systemSettings: JSON.parse(localStorage.getItem('wc26_settings')) || { currentRound: "Vòng Bảng", quizQuestion: "Chưa có câu hỏi.", isTournamentOver: false },
+            systemSettings: JSON.parse(localStorage.getItem('wc26_settings')) || { currentRound: "Vòng Bảng", isTournamentOver: false },
             currentUserId: null,
             supabase: null
         };
@@ -221,7 +215,6 @@
                         id: user.id,
                         name: user.username,
                         predictions: predictions,
-                        quizAnswer: user.quiz_answer || '',
                         bonusPoints: user.bonus_points || 0,
                         score: user.total_score || 0
                     });
@@ -306,7 +299,6 @@
                         id: window.app.currentUserId,
                         name: window.app.currentActiveUser,
                         predictions: {},
-                        quizAnswer: '',
                         bonusPoints: 0,
                         score: 0
                     });
@@ -317,8 +309,6 @@
 
             unmountAllViews(); 
             document.getElementById('screen-play-dashboard').classList.remove('hidden');
-            const activeRecord = window.app.profileDatabase.find(p => p.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
-            document.getElementById('player-quiz-answer-field').value = activeRecord.quizAnswer || "";
             executeSwitchTab('predictions');
             executeRenderSequence();
         }
@@ -331,6 +321,7 @@
             document.getElementById(`tab-view-${targetTab}`).classList.remove('hidden');
             document.getElementById(`tab-btn-${targetTab}`).className = "py-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all bg-emerald-600 text-stone-950";
             if(targetTab === 'profile') executeRenderProfileStats();
+            if(targetTab === 'trivia') renderPlayerTriviaList();
         }
         async function executeCreateNewMatch() {
             const home = document.getElementById('new-match-home').value.trim();
@@ -407,34 +398,13 @@
         function unmountAllViews() { ['screen-login', 'screen-name-prompt', 'screen-play-dashboard', 'screen-admin-dashboard'].forEach(id => document.getElementById(id).classList.add('hidden')); }
         function syncAdminControlPanelValues() {
             document.getElementById('admin-round-dropdown').value = window.app.systemSettings.currentRound;
-            document.getElementById('admin-quiz-input').value = window.app.systemSettings.quizQuestion;
             if (window.app.systemSettings.isTournamentOver) { document.getElementById('btn-end-tournament').classList.add('hidden'); document.getElementById('btn-reopen-tournament').classList.remove('hidden'); }
             else { document.getElementById('btn-end-tournament').classList.remove('hidden'); document.getElementById('btn-reopen-tournament').classList.add('hidden'); }
+            initAdminTriviaPanel();
         }
         function executeAdminRoundUpdate() { window.app.systemSettings.currentRound = document.getElementById('admin-round-dropdown').value; commitStateToLocalStorage(); executeRenderSequence(); }
-        function executeAdminQuizBroadcast() { window.app.systemSettings.quizQuestion = document.getElementById('admin-quiz-input').value.trim(); commitStateToLocalStorage(); }
         function executeToggleTournamentStatus(v) { window.app.systemSettings.isTournamentOver = v; commitStateToLocalStorage(); syncAdminControlPanelValues(); executeRenderSequence(); }
-        async function executeAdjustTriviaBonus(playerName, amount) {
-            let user = window.app.profileDatabase.find(p => p.name.toLowerCase() === playerName.toLowerCase());
-            if (!user) return;
 
-            user.bonusPoints = (user.bonusPoints || 0) + amount;
-            if (user.bonusPoints < 0) user.bonusPoints = 0;
-
-            const { error } = await window.app.supabase
-                .from('users')
-                .update({ bonus_points: user.bonusPoints })
-                .eq('id', user.id);
-
-            if (error) {
-                console.error('Error updating bonus:', error);
-                return;
-            }
-
-            executeDynamicScoringEngine();
-            executeRenderSequence();
-            if (window.app.selectedInspectorUser) executeAdminViewUserInspect(window.app.selectedInspectorUser);
-        }
         async function executeDynamicScoringEngine() {
             window.app.profileDatabase.forEach(player => {
                 let pts = player.bonusPoints || 0;
@@ -493,26 +463,7 @@
             renderLeaderboardContainers();
         }
 
-        async function executeSaveQuizResponse() {
-            if (window.app.systemSettings.isTournamentOver) return;
-            
-            let activeRecord = window.app.profileDatabase.find(p => p.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
-            if (!activeRecord) return;
 
-            const answer = document.getElementById('player-quiz-answer-field').value;
-
-            const { error } = await window.app.supabase
-                .from('users')
-                .update({ quiz_answer: answer })
-                .eq('id', activeRecord.id);
-
-            if (error) {
-                console.error('Error saving quiz response:', error);
-                return;
-            }
-
-            activeRecord.quizAnswer = answer;
-        }
 
         async function executeSaveOfficialScoreInput(mId) {
             let targetMatch = window.app.matchDatabase.find(m => m.id === mId);
@@ -538,7 +489,6 @@
             targetMatch.officialAway = a;
             executeDynamicScoringEngine();
             renderLeaderboardContainers();
-            if (window.app.selectedInspectorUser) executeAdminViewUserInspect(window.app.selectedInspectorUser);
         }
         async function executeRemoveUserAccount(name) {
             if (!confirm(`Xóa thành viên ${name}?`)) return;
@@ -563,12 +513,12 @@
             if (window.app.currentSystemRole === "player") {
                 document.getElementById('player-welcome-badge').innerText = `Tài khoản: ${window.app.currentActiveUser}`;
                 document.getElementById('player-round-indicator').innerText = `Vòng đấu: ${window.app.systemSettings.currentRound}`;
-                document.getElementById('player-quiz-question-display').innerText = window.app.systemSettings.quizQuestion;
                 if (window.app.systemSettings.isTournamentOver) { document.getElementById('player-prize-card').classList.add('hidden'); document.getElementById('player-championship-podium').classList.remove('hidden'); let top = [...window.app.profileDatabase].sort((a,b)=>b.score-a.score)[0]; document.getElementById('podium-winner-name').innerText = top?top.name:"Chưa rõ"; document.getElementById('podium-winner-score').innerText = top?`Điểm: ${top.score}`:""; }
                 else { document.getElementById('player-championship-podium').classList.add('hidden'); document.getElementById('player-prize-card').classList.remove('hidden'); }
                 renderPlayerFixturesList();
                 if(window.app.activeTab === 'profile') executeRenderProfileStats();
-            } else if (window.app.currentSystemRole === "admin") { renderAdminFixturesList(); renderAdminInspectorControls(); }
+                if(window.app.activeTab === 'trivia') renderPlayerTriviaList();
+            } else if (window.app.currentSystemRole === "admin") { renderAdminFixturesList(); }
             renderLeaderboardContainers();
         }
         function renderPlayerFixturesList() {
@@ -611,30 +561,8 @@
             if(badges.length === 0) badges.push(`<span class="text-xs text-stone-500 italic">Hãy tham gia dự đoán và trả lời câu hỏi để mở khóa danh hiệu!</span>`);
             document.getElementById('profile-badges-container').innerHTML = badges.join('');
         }
-        function renderAdminInspectorControls() {
-            document.getElementById('admin-inspector-tabs').innerHTML = window.app.profileDatabase.map(p => `<button onclick="executeAdminViewUserInspect('${p.name}')" class="px-3 py-1.5 rounded-xl bg-stone-900 border border-stone-800 text-xs font-bold text-white">${p.name}</button>`).join('');
-        }
-        function executeAdminViewUserInspect(name) {
-            window.app.selectedInspectorUser = name; let user = window.app.profileDatabase.find(p=>p.name.toLowerCase()===name.toLowerCase());
-            if(!user) return;
-            let pr = window.app.matchDatabase.map(m=>{ let prd = user.predictions[`match-${m.id}`]?`${user.predictions[`match-${m.id}`].home}-${user.predictions[`match-${m.id}`].away}`:"Chưa chọn"; return `<div class="p-2 bg-stone-950 rounded border border-stone-900 text-11px text-stone-300 flex justify-between"><span>${m.home}-${m.away}</span><span class="text-blue-400 font-bold">Đoán: ${prd}</span></div>`; }).join('');
-            
-            document.getElementById('admin-inspector-viewport').innerHTML = `
-                <div class="space-y-4 w-full text-left">
-                    <div class="bg-stone-950 p-3 rounded-xl border border-stone-800 flex justify-between items-center">
-                        <div>
-                            <p class="text-10px text-stone-500 uppercase font-bold">Câu trả lời Trivia:</p>
-                            <p class="text-sm font-bold text-amber-400 mt-0.5">"${user.quizAnswer || 'Chưa trả lời'}"</p>
-                            <p class="text-10px text-stone-400 mt-1">Điểm Trivia hiện tại: <span class="text-emerald-400 font-bold">${user.bonusPoints || 0}đ</span></p>
-                        </div>
-                        <div class="flex gap-1">
-                            <button onclick="executeAdjustTriviaBonus('${user.name}', 1)" class="bg-emerald-600 text-stone-950 font-black px-3 py-2 rounded-xl uppercase tracking-wider text-10px hover:bg-emerald-500">+1 Pt Bonus</button>
-                            <button onclick="executeAdjustTriviaBonus('${user.name}', -1)" class="bg-stone-900 text-red-400 border border-stone-800 font-black px-2.5 py-2 rounded-xl text-10px hover:bg-stone-800">-1 Pt</button>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${pr}</div>
-                </div>`;
-        }
+
+
         function commitStateToLocalStorage() { localStorage.setItem('wc26_matches', JSON.stringify(window.app.matchDatabase)); localStorage.setItem('wc26_profiles', JSON.stringify(window.app.profileDatabase)); localStorage.setItem('wc26_settings', JSON.stringify(window.app.systemSettings)); }
     </script>
 </body>
