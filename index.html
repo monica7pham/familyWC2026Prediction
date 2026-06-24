@@ -466,8 +466,23 @@
 
             const homeStr = document.getElementById(`pred-${mId}-home`).value.trim();
             const awayStr = document.getElementById(`pred-${mId}-away`).value.trim();
-            const homeScore = homeStr === '' ? null : parseInt(homeStr);
-            const awayScore = awayStr === '' ? null : parseInt(awayStr);
+
+            // Validation: both fields must have values
+            if (homeStr === '' || awayStr === '') {
+                console.warn('⚠️ Validation failed: missing prediction values');
+                showToastNotification('❌ Vui lòng nhập cả tỉ số nhà và khách', 'error');
+                return;
+            }
+
+            const homeScore = parseInt(homeStr);
+            const awayScore = parseInt(awayStr);
+
+            // Check if parsed values are valid numbers
+            if (isNaN(homeScore) || isNaN(awayScore)) {
+                console.warn('⚠️ Validation failed: invalid numbers');
+                showToastNotification('❌ Tỉ số phải là số nguyên', 'error');
+                return;
+            }
 
             console.log(`📤 Saving prediction for match ${mId}: ${homeScore}-${awayScore}, user_id: ${activeRecord.id}`);
 
@@ -493,8 +508,8 @@
             
             // Update local cache
             activeRecord.predictions[`match-${mId}`] = {
-                home: homeScore !== null ? homeScore.toString() : '',
-                away: awayScore !== null ? awayScore.toString() : ''
+                home: homeScore.toString(),
+                away: awayScore.toString()
             };
 
             showToastNotification('✅ Dự đoán đã lưu', 'success');
@@ -567,7 +582,7 @@
             document.getElementById('player-fixtures-container').innerHTML = window.app.matchDatabase.map(m => {
                 let h = prRecord&&prRecord.predictions[`match-${m.id}`]?prRecord.predictions[`match-${m.id}`].home:"", a = prRecord&&prRecord.predictions[`match-${m.id}`]?prRecord.predictions[`match-${m.id}`].away:"";
                 let badge = m.officialHome!==null? `<span class="text-xs text-emerald-400 font-bold">KQ: ${m.officialHome}-${m.officialAway}</span>`:`<span class="text-xs text-stone-500">Chờ đấu</span>`;
-                return `<div class="bg-stone-900/50 p-4 rounded-xl border border-stone-800 flex justify-between items-center"><div><p class="text-xs text-emerald-500 font-bold">${m.group}</p><p class="text-sm font-bold text-white">${m.home} vs ${m.away}</p></div><div class="flex items-center gap-1"><input type="number" value="${h}" id="pred-${m.id}-home" oninput="executeSavePredictionInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"><span>-</span><input type="number" value="${a}" id="pred-${m.id}-away" oninput="executeSavePredictionInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"></div><div>${badge}</div></div>`;
+                return `<div class="bg-stone-900/50 p-4 rounded-xl border border-stone-800 flex justify-between items-center"><div><p class="text-xs text-emerald-500 font-bold">${m.group}</p><p class="text-sm font-bold text-white">${m.home} vs ${m.away}</p></div><div class="flex items-center gap-1"><input type="number" value="${h}" id="pred-${m.id}-home" onblur="executeSavePredictionInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"><span>-</span><input type="number" value="${a}" id="pred-${m.id}-away" onblur="executeSavePredictionInput(${m.id})" class="w-10 h-10 bg-stone-950 text-center text-white border border-stone-800 rounded font-bold focus:outline-none"></div><div>${badge}</div></div>`;
             }).join('');
         }
         function renderAdminFixturesList() {
