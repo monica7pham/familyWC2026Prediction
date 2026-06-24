@@ -15,6 +15,7 @@
         .toast-error { background-color: #ef4444; color: #ffffff; }
         @keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
+        .toast-notification { display: block !important; visibility: visible !important; }
     </style>
 </head>
 <body class="stadium-bg text-gray-100 font-sans min-h-screen">
@@ -411,11 +412,17 @@
         function executeToggleTournamentStatus(v) { window.app.systemSettings.isTournamentOver = v; commitStateToLocalStorage(); syncAdminControlPanelValues(); executeRenderSequence(); }
 
         function showToastNotification(message, type = 'success') {
+            console.log(`🔔 Toast (${type}): ${message}`);
             const toast = document.createElement('div');
             toast.className = `toast-notification toast-${type}`;
             toast.textContent = message;
+            toast.style.display = 'block';
             document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
+            console.log(`✅ Toast appended to DOM, removing after 3s`);
+            setTimeout(() => {
+                console.log(`⏱️ Toast timeout reached, removing element`);
+                toast.remove();
+            }, 3000);
         }
 
         async function executeDynamicScoringEngine() {
@@ -446,14 +453,25 @@
             if (window.app.systemSettings.isTournamentOver) return;
             
             let activeRecord = window.app.profileDatabase.find(p => p.name.toLowerCase() === window.app.currentActiveUser.toLowerCase());
-            if (!activeRecord) return;
+            if (!activeRecord) {
+                console.warn('❌ Active record not found');
+                return;
+            }
+            
+            if (!activeRecord.id) {
+                console.warn('❌ Active record ID not found');
+                showToastNotification('❌ Lỗi: Không tìm thấy ID người dùng', 'error');
+                return;
+            }
 
             const homeStr = document.getElementById(`pred-${mId}-home`).value.trim();
             const awayStr = document.getElementById(`pred-${mId}-away`).value.trim();
             const homeScore = homeStr === '' ? null : parseInt(homeStr);
             const awayScore = awayStr === '' ? null : parseInt(awayStr);
 
-            // Upsert prediction to Supabase
+            console.log(`📤 Saving prediction for match ${mId}: ${homeScore}-${awayScore}, user_id: ${activeRecord.id}`);
+
+            // Upsert prediction to Supabase WITH conflict target
             const { error } = await window.app.supabase
                 .from('predictions')
                 .upsert({
@@ -461,21 +479,26 @@
                     match_id: mId,
                     predicted_home_score: homeScore,
                     predicted_away_score: awayScore
-                });
+                }, { onConflict: 'user_id,match_id' });
 
             if (error) {
-                console.error('Error saving prediction:', error);
-                showToastNotification('❌ Lỗi, vui lòng thử lại', 'error');
+                console.error('❌ Database Error:', error);
+                console.error('Error code:', error.code);
+                console.error('Error message:', error.message);
+                showToastNotification(`❌ Lỗi: ${error.message}`, 'error');
                 return;
             }
 
+            console.log('✅ Prediction saved successfully to database');
+            
             // Update local cache
             activeRecord.predictions[`match-${mId}`] = {
-                home: homeScore?.toString() || '',
-                away: awayScore?.toString() || ''
+                home: homeScore !== null ? homeScore.toString() : '',
+                away: awayScore !== null ? awayScore.toString() : ''
             };
 
             showToastNotification('✅ Dự đoán đã lưu', 'success');
+            console.log('📊 Executing scoring engine...');
             executeDynamicScoringEngine();
             renderLeaderboardContainers();
         }
